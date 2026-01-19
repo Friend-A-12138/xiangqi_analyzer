@@ -1,0 +1,15 @@
+{
+  "engine_path": "Pikafish/src",
+  "pose_model_path": "onnx/pose/4_v6-0301.onnx",
+  "classifier_model_path": "onnx/layout_recognition/nano_v3-0319.onnx",
+  "source_type": "file",
+  "source_value": "",
+  "think_time": 2000,
+  "analysis_interval": 3,
+  "enable_tunnel": false,
+  "tunnel_type": "ngrok",
+  "tunnel_config": {
+    "auth_token": "",
+    "region": "ap"
+  }
+}

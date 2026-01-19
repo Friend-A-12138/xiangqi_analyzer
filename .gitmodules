@@ -1,3 +1,6 @@
 [submodule "Chinese_Chess_Recognition"]
 	path = Chinese_Chess_Recognition
 	url = https://huggingface.co/spaces/yolo12138/Chinese_Chess_Recognition.git
+[submodule "Pikafish"]
+	path = Pikafish
+	url = https://github.com/official-pikafish/Pikafish.git

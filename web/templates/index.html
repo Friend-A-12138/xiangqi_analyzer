@@ -1,0 +1,327 @@
+{% extends "base.html" %}
+
+{% block title %}中国象棋AI分析器{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- 控制面板 -->
+    <div class="col-lg-4">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5><i class="bi bi-controller"></i> 控制面板</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label">状态</label>
+                    <div>
+                        <span id="status-badge" class="badge bg-secondary">
+                            <i class="bi bi-stop-circle"></i> 未运行
+                        </span>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <label class="form-label">信号源</label>
+                    <div class="text-muted small" id="source-info">
+                        未配置
+                    </div>
+                </div>
+                
+                <div class="d-grid gap-2">
+                    <button id="start-btn" class="btn btn-success" onclick="toggleAnalysis()">
+                        <i class="bi bi-play-fill"></i> 开始分析
+                    </button>
+                    <button id="stop-btn" class="btn btn-danger" onclick="toggleAnalysis()" style="display: none;">
+                        <i class="bi bi-stop-fill"></i> 停止分析
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 实时预览 -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5><i class="bi bi-camera-video"></i> 实时预览</h5>
+            </div>
+            <div class="card-body">
+                <div id="preview-container" class="text-center">
+                    <div class="text-muted">
+                        <i class="bi bi-image" style="font-size: 3rem;"></i>
+                        <p>等待画面...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 分析结果 -->
+    <div class="col-lg-8">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5><i class="bi bi-chess"></i> 棋盘分析</h5>
+            </div>
+            <div class="card-body">
+                <div id="analysis-result">
+                    <div class="text-center text-muted">
+                        <i class="bi bi-hourglass-split" style="font-size: 3rem;"></i>
+                        <p>等待分析结果...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 推荐走法 -->
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-lightbulb"></i> AI推荐走法</h5>
+            </div>
+            <div class="card-body">
+                <div id="recommendation">
+                    <div class="text-center text-muted">
+                        <i class="bi bi-question-circle" style="font-size: 3rem;"></i>
+                        <p>等待推荐走法...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 上传图片分析 -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-upload"></i> 上传图片分析</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <input type="file" class="form-control" id="image-upload" accept="image/*">
+                </div>
+                <button class="btn btn-primary" onclick="uploadImage()">
+                    <i class="bi bi-search"></i> 分析图片
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// SocketIO连接
+const socket = io();
+
+let isRunning = false;
+
+// 页面加载完成后初始化
+document.addEventListener('DOMContentLoaded', function() {
+    updateStatus();
+    
+    // 监听Socket事件
+    socket.on('status', function(data) {
+        isRunning = data.running;
+        updateUI();
+    });
+    
+    socket.on('preview', function(data) {
+        updatePreview(data.image);
+    });
+    
+    socket.on('analysis_result', function(data) {
+        updateAnalysisResult(data);
+    });
+});
+
+// 更新状态
+function updateStatus() {
+    fetch('/api/status')
+        .then(response => response.json())
+        .then(data => {
+            isRunning = data.running;
+            updateUI();
+        })
+        .catch(error => console.error('Error:', error));
+}
+
+// 更新UI
+function updateUI() {
+    const statusBadge = document.getElementById('status-badge');
+    const startBtn = document.getElementById('start-btn');
+    const stopBtn = document.getElementById('stop-btn');
+    
+    if (isRunning) {
+        statusBadge.className = 'badge bg-success';
+        statusBadge.innerHTML = '<i class="bi bi-play-circle"></i> 运行中';
+        startBtn.style.display = 'none';
+        stopBtn.style.display = 'block';
+    } else {
+        statusBadge.className = 'badge bg-secondary';
+        statusBadge.innerHTML = '<i class="bi bi-stop-circle"></i> 未运行';
+        startBtn.style.display = 'block';
+        stopBtn.style.display = 'none';
+    }
+}
+
+// 切换分析状态
+function toggleAnalysis() {
+    if (isRunning) {
+        stopAnalysis();
+    } else {
+        startAnalysis();
+    }
+}
+
+// 开始分析
+function startAnalysis() {
+    fetch('/api/start', { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                isRunning = true;
+                updateUI();
+            } else {
+                alert('启动失败: ' + (data.error || '未知错误'));
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('启动失败: ' + error.message);
+        });
+}
+
+// 停止分析
+function stopAnalysis() {
+    fetch('/api/stop', { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                isRunning = false;
+                updateUI();
+            } else {
+                alert('停止失败: ' + (data.error || '未知错误'));
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('停止失败: ' + error.message);
+        });
+}
+
+// 更新预览
+function updatePreview(imageData) {
+    const container = document.getElementById('preview-container');
+    container.innerHTML = `<img src="${imageData}" class="preview-image" alt="实时预览">`;
+}
+
+// 更新分析结果
+function updateAnalysisResult(data) {
+    // 更新棋盘布局
+    const analysisDiv = document.getElementById('analysis-result');
+    let boardHtml = '<div class="mb-3">';
+    boardHtml += `<p><strong>检测时间:</strong> ${data.detect_time.toFixed(3)}s</p>`;
+    boardHtml += `<p><strong>置信度:</strong> ${data.confidence.toFixed(3)}</p>`;
+    boardHtml += '<p><strong>FEN:</strong> <code>' + data.fen + '</code></p>';
+    boardHtml += '</div>';
+    
+    // 显示棋盘
+    boardHtml += '<div class="chessboard" style="font-family: monospace;">';
+    const layout = data.layout_2d;
+    for (let i = layout.length - 1; i >= 0; i--) {
+        boardHtml += '<div>';
+        const row = layout[i];
+        for (let j = row.length - 1; j >= 0; j--) {
+            const cell = row[j];
+            let cssClass = 'chess-cell';
+            if (cell.includes('红')) {
+                cssClass += ' chess-red';
+            } else if (cell.includes('黑')) {
+                cssClass += ' chess-black';
+            } else if (cell === '.') {
+                cssClass += ' chess-empty';
+            }
+            boardHtml += `<span class="${cssClass}">${cell === '.' ? '' : cell}</span>`;
+        }
+        boardHtml += '</div>';
+    }
+    boardHtml += '</div>';
+    
+    analysisDiv.innerHTML = boardHtml;
+    
+    // 更新推荐走法
+    const recommendationDiv = document.getElementById('recommendation');
+    let recHtml = '';
+    
+    if (data.best_move) {
+        const move = data.best_move;
+        const fromPos = move.substring(0, 2);
+        const toPos = move.substring(2, 4);
+        
+        recHtml += '<div class="alert alert-success">';
+        recHtml += '<h4><i class="bi bi-award"></i> 最佳走法</h4>';
+        recHtml += '<p><strong>' + move + '</strong> (' + fromPos + ' → ' + toPos + ')</p>';
+        
+        if (data.score) {
+            if (typeof data.score === 'string' && data.score.startsWith('MateIn')) {
+                recHtml += '<p><i class="bi bi-trophy"></i> 能在 ' + data.score.substring(6) + ' 步内将死</p>';
+            } else {
+                const score = parseFloat(data.score);
+                if (score > 0) {
+                    recHtml += '<p><i class="bi bi-arrow-up"></i> 红方优势 +' + score.toFixed(2) + '</p>';
+                } else if (score < 0) {
+                    recHtml += '<p><i class="bi bi-arrow-down"></i> 黑方优势 ' + score.toFixed(2) + '</p>';
+                } else {
+                    recHtml += '<p><i class="bi bi-balance-scale"></i> 双方均势</p>';
+                }
+            }
+        }
+        
+        recHtml += '</div>';
+    } else {
+        recHtml = '<div class="alert alert-warning">';
+        recHtml += '<i class="bi bi-exclamation-triangle"></i> 无法计算推荐走法';
+        recHtml += '</div>';
+    }
+    
+    recommendationDiv.innerHTML = recHtml;
+}
+
+// 上传图片分析
+function uploadImage() {
+    const fileInput = document.getElementById('image-upload');
+    const file = fileInput.files[0];
+    
+    if (!file) {
+        alert('请选择图片');
+        return;
+    }
+    
+    const formData = new FormData();
+    formData.append('image', file);
+    
+    fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            alert('分析失败: ' + data.error);
+        } else {
+            updateAnalysisResult(data);
+            updateRecommendation(data);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('上传失败: ' + error.message);
+    });
+}
+
+// 更新推荐走法显示
+function updateRecommendation(data) {
+    const recommendationDiv = document.getElementById('recommendation');
+    // 已经在updateAnalysisResult中更新了
+}
+</script>
+{% endblock %}

@@ -1,0 +1,285 @@
+{% extends "base.html" %}
+
+{% block title %}设置 - 中国象棋AI分析器{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-gear"></i> 系统设置</h5>
+            </div>
+            <div class="card-body">
+                <form id="settings-form">
+                    <!-- 引擎设置 -->
+                    <div class="mb-4">
+                        <h6 class="text-primary"><i class="bi bi-robot"></i> Pikafish引擎设置</h6>
+                        <div class="mb-3">
+                            <label for="engine-path" class="form-label">引擎路径</label>
+                            <input type="text" class="form-control" id="engine-path" 
+                                   value="{{ config.engine_path }}" placeholder="C:/pikafish/pikafish.exe">
+                            <div class="form-text">
+                                Pikafish引擎可执行文件的完整路径
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 模型设置 -->
+                    <div class="mb-4">
+                        <h6 class="text-primary"><i class="bi bi-brain"></i> 检测模型设置</h6>
+                        <div class="mb-3">
+                            <label for="pose-model-path" class="form-label">姿态检测模型路径</label>
+                            <input type="text" class="form-control" id="pose-model-path" 
+                                   value="{{ config.pose_model_path }}" placeholder="onnx/pose/4_v6-0301.onnx">
+                        </div>
+                        <div class="mb-3">
+                            <label for="classifier-model-path" class="form-label">棋子分类模型路径</label>
+                            <input type="text" class="form-control" id="classifier-model-path" 
+                                   value="{{ config.classifier_model_path }}" placeholder="onnx/layout_recognition/nano_v3-0319.onnx">
+                        </div>
+                    </div>
+                    
+                    <!-- 信号源设置 -->
+                    <div class="mb-4">
+                        <h6 class="text-primary"><i class="bi bi-camera"></i> 信号源设置</h6>
+                        <div class="mb-3">
+                            <label for="source-type" class="form-label">信号源类型</label>
+                            <select class="form-select" id="source-type">
+                                <option value="file" {% if config.source_type == 'file' %}selected{% endif %}>图片文件</option>
+                                <option value="stream" {% if config.source_type == 'stream' %}selected{% endif %}>RTMP/RTSP流</option>
+                                <option value="emulator" {% if config.source_type == 'emulator' %}selected{% endif %}>模拟器</option>
+                                <option value="screen" {% if config.source_type == 'screen' %}selected{% endif %}>屏幕截图</option>
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3" id="stream-config" style="display: none;">
+                            <label for="stream-url" class="form-label">流地址</label>
+                            <input type="text" class="form-control" id="stream-url" 
+                                   value="{{ config.source_value }}" placeholder="rtmp://localhost/live/stream">
+                        </div>
+                        
+                        <div class="mb-3" id="emulator-config" style="display: none;">
+                            <label for="emulator-name" class="form-label">模拟器名称</label>
+                            <input type="text" class="form-control" id="emulator-name" 
+                                   value="{{ config.source_value or 'MuMu' }}" placeholder="MuMu">
+                            <div class="form-text">
+                                支持: MuMu, 雷电, BlueStacks, Nox, LDPlayer等
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3" id="screen-config" style="display: none;">
+                            <label for="screen-region" class="form-label">截图区域</label>
+                            <input type="text" class="form-control" id="screen-region" 
+                                   value="{{ config.source_value }}" placeholder="100,100,800,600">
+                            <div class="form-text">
+                                格式: x,y,width,height (留空表示全屏)
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 分析参数 -->
+                    <div class="mb-4">
+                        <h6 class="text-primary"><i class="bi bi-sliders"></i> 分析参数</h6>
+                        <div class="mb-3">
+                            <label for="think-time" class="form-label">
+                                引擎思考时间: <span id="think-time-value">{{ config.think_time }}</span>ms
+                            </label>
+                            <input type="range" class="form-range" id="think-time" min="500" max="10000" step="500" 
+                                   value="{{ config.think_time }}">
+                        </div>
+                        <div class="mb-3">
+                            <label for="analysis-interval" class="form-label">
+                                分析间隔: <span id="analysis-interval-value">{{ config.analysis_interval }}</span>秒
+                            </label>
+                            <input type="range" class="form-range" id="analysis-interval" min="1" max="10" step="1" 
+                                   value="{{ config.analysis_interval }}">
+                        </div>
+                    </div>
+                    
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-save"></i> 保存设置
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 帮助信息 -->
+    <div class="col-lg-4">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5><i class="bi bi-info-circle"></i> 使用说明</h5>
+            </div>
+            <div class="card-body">
+                <h6>信号源类型</h6>
+                <ul class="small">
+                    <li><strong>图片文件:</strong> 手动上传图片进行分析</li>
+                    <li><strong>RTMP/RTSP流:</strong> 从视频流中实时截取画面</li>
+                    <li><strong>模拟器:</strong> 自动检测并截取模拟器窗口</li>
+                    <li><strong>屏幕截图:</strong> 截取指定屏幕区域</li>
+                </ul>
+                
+                <h6>推荐设置</h6>
+                <ul class="small">
+                    <li>思考时间: 2000ms (平衡速度和准确性)</li>
+                    <li>分析间隔: 3秒 (避免过于频繁分析)</li>
+                </ul>
+                
+                <h6>文件路径示例</h6>
+                <ul class="small">
+                    <li>Windows: C:/pikafish/pikafish.exe</li>
+                    <li>Linux: /usr/local/bin/pikafish</li>
+                    <li>Mac: /Applications/pikafish.app/Contents/MacOS/pikafish</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-people"></i> 用户管理</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small">
+                    当前在线用户: <span id="active-users">0</span> / {{ config.max_users or 5 }}
+                </p>
+                
+                <h6>添加新用户</h6>
+                <div class="mb-3">
+                    <input type="text" class="form-control form-control-sm" id="new-username" placeholder="用户名">
+                </div>
+                <div class="mb-3">
+                    <input type="password" class="form-control form-control-sm" id="new-password" placeholder="密码">
+                </div>
+                <button class="btn btn-sm btn-outline-primary" onclick="addUser()">
+                    <i class="bi bi-person-plus"></i> 添加用户
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// 页面加载完成后初始化
+document.addEventListener('DOMContentLoaded', function() {
+    // 显示/隐藏相应的配置区域
+    toggleSourceConfig();
+    
+    // 监听信号源类型变化
+    document.getElementById('source-type').addEventListener('change', toggleSourceConfig);
+    
+    // 监听滑块变化
+    document.getElementById('think-time').addEventListener('input', function() {
+        document.getElementById('think-time-value').textContent = this.value;
+    });
+    
+    document.getElementById('analysis-interval').addEventListener('input', function() {
+        document.getElementById('analysis-interval-value').textContent = this.value;
+    });
+    
+    // 监听表单提交
+    document.getElementById('settings-form').addEventListener('submit', saveSettings);
+    
+    // 更新在线用户数
+    updateActiveUsers();
+});
+
+// 显示/隐藏信号源配置
+function toggleSourceConfig() {
+    const sourceType = document.getElementById('source-type').value;
+    
+    // 隐藏所有配置区域
+    document.getElementById('stream-config').style.display = 'none';
+    document.getElementById('emulator-config').style.display = 'none';
+    document.getElementById('screen-config').style.display = 'none';
+    
+    // 显示对应的配置区域
+    if (sourceType === 'stream') {
+        document.getElementById('stream-config').style.display = 'block';
+    } else if (sourceType === 'emulator') {
+        document.getElementById('emulator-config').style.display = 'block';
+    } else if (sourceType === 'screen') {
+        document.getElementById('screen-config').style.display = 'block';
+    }
+}
+
+// 保存设置
+function saveSettings(event) {
+    event.preventDefault();
+    
+    const sourceType = document.getElementById('source-type').value;
+    let sourceValue = '';
+    
+    // 根据信号源类型获取对应的值
+    if (sourceType === 'stream') {
+        sourceValue = document.getElementById('stream-url').value;
+    } else if (sourceType === 'emulator') {
+        sourceValue = document.getElementById('emulator-name').value;
+    } else if (sourceType === 'screen') {
+        sourceValue = document.getElementById('screen-region').value;
+    }
+    
+    const config = {
+        engine_path: document.getElementById('engine-path').value,
+        pose_model_path: document.getElementById('pose-model-path').value,
+        classifier_model_path: document.getElementById('classifier-model-path').value,
+        source_type: sourceType,
+        source_value: sourceValue,
+        think_time: parseInt(document.getElementById('think-time').value),
+        analysis_interval: parseInt(document.getElementById('analysis-interval').value)
+    };
+    
+    fetch('/api/config', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(config)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('设置已保存');
+        } else {
+            alert('保存失败: ' + (data.error || '未知错误'));
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('保存失败: ' + error.message);
+    });
+}
+
+// 更新在线用户数
+function updateActiveUsers() {
+    fetch('/api/status')
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('active-users').textContent = data.active_users;
+        })
+        .catch(error => console.error('Error:', error));
+}
+
+// 添加用户
+function addUser() {
+    const username = document.getElementById('new-username').value;
+    const password = document.getElementById('new-password').value;
+    
+    if (!username || !password) {
+        alert('请输入用户名和密码');
+        return;
+    }
+    
+    // 这里应该调用后端API添加用户
+    // 目前只是演示，实际应用中需要实现后端接口
+    alert('添加用户功能需要后端支持\n用户名: ' + username + '\n密码: ' + password);
+    
+    // 清空输入框
+    document.getElementById('new-username').value = '';
+    document.getElementById('new-password').value = '';
+}
+</script>
+{% endblock %}
