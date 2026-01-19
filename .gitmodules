@@ -1,0 +1,3 @@
+[submodule "Chinese_Chess_Recognition"]
+	path = Chinese_Chess_Recognition
+	url = https://huggingface.co/spaces/yolo12138/Chinese_Chess_Recognition.git
