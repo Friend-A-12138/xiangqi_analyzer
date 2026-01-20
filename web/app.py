@@ -10,6 +10,7 @@ import time
 import json
 import os
 import sys
+import re
 from pathlib import Path
 from datetime import datetime, timedelta
 import logging
@@ -55,6 +56,33 @@ analysis_config = {
     'analysis_interval': 3,  # 秒
     'users': {}  # 用户管理
 }
+
+def safe_float(value, default=0.0):
+    """确保值是浮点数"""
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        match = re.search(r'(\d+\.?\d*)', value)
+        return float(match.group(1)) if match else default
+    if isinstance(value, (list, tuple)) and len(value) == 1:  # 可能是单元素数组
+        return safe_float(value[0], default)
+    return default
+
+def make_json_serializable(obj):
+    """转换所有 numpy 类型为 JSON 可序列化"""
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()  # 转换为嵌套列表
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, dict):
+        return {k: make_json_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [make_json_serializable(item) for item in obj]
+    return obj
 
 # 用户管理
 class UserManager:
@@ -197,11 +225,11 @@ def update_config():
         
         # 更新配置
         if 'engine_path' in data:
-            analysis_config['engine_path'] = data['engine_path']
+            analysis_config['engine_path'] = data.get('engine_path') or analysis_config['engine_path']
         if 'pose_model_path' in data:
-            analysis_config['pose_model_path'] = data['pose_model_path']
+            analysis_config['pose_model_path'] = data.get('pose_model_path') or analysis_config['pose_model_path']
         if 'classifier_model_path' in data:
-            analysis_config['classifier_model_path'] = data['classifier_model_path']
+            analysis_config['classifier_model_path'] = data.get('classifier_model_path') or analysis_config['classifier_model_path']
         if 'source_type' in data:
             analysis_config['source_type'] = data['source_type']
         if 'source_value' in data:
@@ -312,28 +340,22 @@ def upload_image():
             return jsonify({'error': '分析器未初始化'}), 500
         
         result = analyzer.analyze_image(image, analysis_config['think_time'])
-        
+
         if result:
-            # 转换为可序列化的格式
-            serializable_result = result.copy()
-            
-            # 转换图像为base64
-            if 'original_with_keypoints' in serializable_result:
-                img = serializable_result['original_with_keypoints']
-                _, buffer = cv2.imencode('.jpg', img)
-                img_base64 = base64.b64encode(buffer).decode()
-                serializable_result['original_with_keypoints'] = f"data:image/jpeg;base64,{img_base64}"
-            
-            if 'transformed_board' in serializable_result:
-                img = serializable_result['transformed_board']
-                _, buffer = cv2.imencode('.jpg', img)
-                img_base64 = base64.b64encode(buffer).decode()
-                serializable_result['transformed_board'] = f"data:image/jpeg;base64,{img_base64}"
-            
-            # 转换numpy类型
-            serializable_result['detect_time'] = float(serializable_result['detect_time'])
-            serializable_result['confidence'] = float(serializable_result['confidence'])
-            
+            # 第一步：转换所有 numpy 类型
+            serializable_result = make_json_serializable(result)
+
+            # 第二步：确保关键字段是数字（修复前端 toFixed 错误）
+            serializable_result['detect_time'] = safe_float(serializable_result.get('detect_time'), 0.0)
+            serializable_result['confidence'] = safe_float(serializable_result.get('confidence'), 0.0)
+
+            # 第三步：转换图像为 base64（用原始 result 中的数组）
+            for img_key in ['original_with_keypoints', 'transformed_board']:
+                if img_key in result:
+                    _, buffer = cv2.imencode('.jpg', result[img_key])
+                    img_base64 = base64.b64encode(buffer).decode()
+                    serializable_result[img_key] = f"data:image/jpeg;base64,{img_base64}"
+
             return jsonify(serializable_result)
         else:
             return jsonify({'error': '分析失败'}), 500
@@ -465,7 +487,35 @@ def init_app():
     # 添加默认用户
     user_manager.add_user('admin', 'admin123')
     user_manager.add_user('guest', 'guest123')
-    
+
+    # ===== 在这里设置真实的默认值 =====
+    project_root = Path(__file__).parent.parent
+
+    # 设置默认路径（根据你的实际文件结构）
+    analysis_config.update({
+        'engine_path': str(project_root / 'Pikafish' / 'src' / 'pikafish.exe'),
+        'pose_model_path': str(project_root / 'onnx' / 'pose' / '4_v6-0301.onnx'),
+        'classifier_model_path': str(project_root / 'onnx' / 'layout_recognition' / 'nano_v3-0319.onnx'),
+    })
+
+    # 验证文件是否存在（可选，但推荐）
+    for key, path in analysis_config.items():
+        if key.endswith('_path') and path:  # 只检查路径字段
+            if not Path(path).exists():
+                logger.warning(f"默认路径不存在 {key}: {path}")
+
+    submodule_root = project_root / "Chinese_Chess_Recognition"
+    core_init = submodule_root / "core" / "__init__.py"
+
+    # 确保 __init__.py 存在
+    if not (submodule_root / "__init__.py").exists():
+        (submodule_root / "__init__.py").touch()
+        logger.info("✅ 已创建 Chinese_Chess_Recognition/__init__.py")
+
+    if not core_init.exists():
+        core_init.touch()
+        logger.info("✅ 已创建 Chinese_Chess_Recognition/core/__init__.py")
+
     logger.info("应用初始化完成")
     logger.info("默认用户:")
     logger.info("  admin / admin123")

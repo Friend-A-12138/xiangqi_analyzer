@@ -41,13 +41,12 @@ xiangqi_analyzer/              # 项目根目录
 │           ├── index.html
 │           └── settings.html
 │
-├── third_party/               # 第三方代码（Git子模块）
-│   ├── chess_detector/        # 棋盘检测器（Git子模块）
-│   │   ├── core/              # 第三方core模块
-│   │   │   ├── __init__.py
-│   │   │   └── chessboard_detector.py
-│   │   ├── onnx/
-│   │   └── ...
+├── Chinese_Chess_Recognition/               # 第三方代码（Git子模块）
+│   ├── core/              # 第三方core模块
+│   │   ├── __init__.py
+│   │   └── chessboard_detector.py
+│   ├── onnx/
+│   └── ...
 │   └── README.md              # 第三方代码说明
 │
 ├── config/                    # 配置文件
@@ -72,7 +71,7 @@ xiangqi_analyzer/              # 项目根目录
 ```
 # 项目代码引用第三方代码
 src/analyzer/chess_analyzer.py
-└── from third_party.chess_detector.core.chessboard_detector import ChessboardDetector
+└── from Chinese_Chess_Recognition.core.chessboard_detector import ChessboardDetector
 
 # 项目内部引用
 main.py

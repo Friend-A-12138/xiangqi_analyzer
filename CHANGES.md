@@ -6,13 +6,13 @@
 
 #### 1. 项目结构重组
 - **将 `core/` 重命名为 `src/`**: 更清晰的项目代码目录
-- **新增 `third_party/` 目录**: 专门存放第三方代码（通过Git子模块管理）
+- **新增 `Chinese_Chess_Recognition/` 目录**: 专门存放第三方代码（通过Git子模块管理）
 - **新增 `tests/` 目录**: 存放测试和调试脚本
 - **新增 `docs_all/` 目录**: 统一存放所有文档
 
 #### 2. 代码引用规范化
 - **所有项目内部引用改为 `src.*`**: 避免与第三方代码混淆
-- **第三方代码引用改为 `third_party.*`**: 清晰区分代码来源
+- **第三方代码引用改为 `Chinese_Chess_Recognition.*`**: 清晰区分代码来源
 - **更新了所有导入路径**: 确保代码能够正确运行
 
 #### 3. Git子模块支持
@@ -72,12 +72,12 @@ import numpy as np
 from src.analyzer.chess_analyzer import XiangqiAnalyzer
 
 # 第三方模块
-from third_party.chess_detector.core.chessboard_detector import ChessboardDetector
+from Chinese_Chess_Recognition.core.chessboard_detector import ChessboardDetector
 ```
 
 #### 2. 命名规范
 - **项目模块**: `src.*`（我们的代码）
-- **第三方模块**: `third_party.*`（他人的代码）
+- **第三方模块**: `Chinese_Chess_Recognition.*`（他人的代码）
 - **测试模块**: `tests.*`（测试代码）
 
 ## 🎯 使用指南
@@ -122,14 +122,14 @@ from third_party.chess_detector.core.chessboard_detector import ChessboardDetect
   ```
 
 #### 第三方代码
-- 现在通过 `third_party.*` 导入
+- 现在通过 `Chinese_Chess_Recognition.*` 导入
 - 示例:
   ```python
   # 旧代码
   from core.chessboard_detector import ChessboardDetector
   
   # 新代码
-  from third_party.chess_detector.core.chessboard_detector import ChessboardDetector
+  from Chinese_Chess_Recognition.core.chessboard_detector import ChessboardDetector
   ```
 
 ## 📋 检查清单
@@ -149,7 +149,7 @@ from third_party.chess_detector.core.chessboard_detector import ChessboardDetect
 
 本次更新主要解决了以下问题：
 
-1. **代码结构混乱**: 通过 `src/` 和 `third_party/` 清晰分离代码
+1. **代码结构混乱**: 通过 `src/` 和 `Chinese_Chess_Recognition/` 清晰分离代码
 2. **文档分散**: 统一整理到 `docs_all/` 目录
 3. **调试困难**: 提供专门的测试和调试脚本
 4. **第三方代码管理**: 引入Git子模块规范

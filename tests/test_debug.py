@@ -52,7 +52,7 @@ def test_imports():
         ("src.chess_analyzer", "象棋分析器"),
         ("src.stream_processor", "流处理器"),
         ("src.tunnel_service", "内网穿透"),
-        ("src.web.app", "Web应用"),
+        ("web.app", "Web应用"),
     ]
     
     results = []
@@ -211,7 +211,7 @@ def test_web_app():
     print_header("测试Web应用")
     
     try:
-        from src.web.app import app, socketio
+        from web.app import app, socketio
         
         # 测试Flask应用
         if hasattr(app, 'run'):

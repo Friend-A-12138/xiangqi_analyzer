@@ -7,6 +7,7 @@ Pikafish引擎测试脚本
 import os
 import sys
 import subprocess
+import time
 from pathlib import Path
 import logging
 

@@ -26,6 +26,21 @@ CATEGORY_MAP = {
 }
 CATEGORY_MAP_REVERSE = {v: k for k, v in CATEGORY_MAP.items()}
 
+project_root = Path(__file__).parent.parent
+core_package_path = project_root / "Chinese_Chess_Recognition"
+
+# 将 Chinese_Chess_Recognition 添加到 sys.path，使其内部的绝对导入能工作
+if str(core_package_path) not in sys.path:
+    sys.path.insert(0, str(core_package_path))
+
+# 现在可以安全导入
+try:
+    from core.chessboard_detector import ChessboardDetector as OriginalDetector
+    CORE_AVAILABLE = True
+except Exception as e:
+    CORE_AVAILABLE = False
+    logger.error(f"导入失败: {e}")
+    logger.exception("详细堆栈信息:")
 
 class PikafishEngine:
     """Pikafish引擎封装类，支持UCI协议交互"""
@@ -215,10 +230,9 @@ class ChessboardDetector:
             full_classifier_model_path: 棋子分类模型路径
         """
         try:
-            # 动态导入检测器模块
-            sys.path.insert(0, str(Path(pose_model_path).parent.parent.parent))
-            from third_party.chess_detector.core.chessboard_detector import ChessboardDetector as OriginalDetector
-            
+            if not CORE_AVAILABLE:
+                raise RuntimeError("无法初始化：Chinese_Chess_Recognition 模块不可用")
+
             self.detector = OriginalDetector(
                 pose_model_path=pose_model_path,
                 full_classifier_model_path=full_classifier_model_path
