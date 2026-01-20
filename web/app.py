@@ -22,8 +22,8 @@ from PIL import Image
 # 添加父目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.chess_analyzer import XiangqiAnalyzer, analyze_image_file
-from core.stream_processor import RTMPStreamProcessor, EmulatorCapture, create_screen_capture
+from src.chess_analyzer import XiangqiAnalyzer, analyze_image_file
+from src.stream_processor import RTMPStreamProcessor, EmulatorCapture, create_screen_capture
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from src.chess_analyzer import XiangqiAnalyzer
 from src.stream_processor import RTMPStreamProcessor, EmulatorCapture, create_screen_capture
 from src.tunnel_service import TunnelManager, create_ngrok_tunnel, create_frp_tunnel
-from src.web.app import app, socketio, init_app
+from web.app import app, socketio, init_app
 
 # 配置日志
 logging.basicConfig(
