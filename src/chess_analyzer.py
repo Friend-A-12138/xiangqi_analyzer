@@ -42,6 +42,7 @@ except Exception as e:
     logger.error(f"导入失败: {e}")
     logger.exception("详细堆栈信息:")
 
+
 class PikafishEngine:
     """Pikafish引擎封装类，支持UCI协议交互"""
 
@@ -59,10 +60,21 @@ class PikafishEngine:
 
         self.timeout = timeout
         self.process = None
+        self.crash_count = 0  # 新增：追踪连续崩溃次数
         self._start_engine()
 
-    def _start_engine(self):
-        """启动引擎进程"""
+    def _start_engine(self, retry_count: int = 0):
+        """
+        启动引擎进程，带重试机制
+
+        Args:
+            retry_count: 当前重试次数
+        """
+        # 如果进程已存在，先清理
+        if self.process and self.process.poll() is None:
+            self.process.terminate()
+            time.sleep(0.5)
+
         try:
             # Windows下需要设置creationflags
             creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -84,22 +96,44 @@ class PikafishEngine:
             # 设置中国象棋变体
             self._send_command("setoption name UCI_Variant value xiangqi")
 
+            # 重置崩溃计数
+            self.crash_count = 0
             logger.info("✅ Pikafish引擎启动成功")
 
         except Exception as e:
-            raise RuntimeError(f"引擎启动失败: {e}")
+            if retry_count < 3:
+                logger.error(f"引擎启动失败 (重试 {retry_count + 1}/3): {e}")
+                time.sleep(1)
+                self._start_engine(retry_count + 1)
+            else:
+                raise RuntimeError(f"引擎启动失败: {e}")
+
+    def _ensure_engine_alive(self):
+        """确保引擎存活，否则自动重启"""
+        if self.process is None or self.process.poll() is not None:
+            logger.warning("检测到引擎进程异常，尝试自动重启...")
+            try:
+                self._start_engine()
+            except Exception as e:
+                logger.error(f"自动重启失败: {e}")
+                raise RuntimeError("引擎无法恢复")
 
     def _send_command(self, command: str):
-        """发送命令到引擎"""
+        """发送命令到引擎，增加崩溃检测"""
+        # 先确保引擎存活
+        self._ensure_engine_alive()
+
         if self.process and self.process.poll() is None:
             self.process.stdin.write(command + "\n")
             self.process.stdin.flush()
         else:
+            # 引擎已死，标记崩溃
+            self.crash_count += 1
             raise RuntimeError("引擎进程已终止")
 
     def _wait_for_response(self, target: str = None, max_time: float = None) -> List[str]:
         """
-        等待引擎响应
+        等待引擎响应，增加崩溃检测和计数
 
         Args:
             target: 等待特定响应字符串
@@ -115,20 +149,24 @@ class PikafishEngine:
         responses = []
 
         while time.time() - start_time < max_time:
+            # 检查进程是否存活
             if self.process.poll() is not None:
+                self.crash_count += 1  # 检测到崩溃，计数+1
                 raise RuntimeError("引擎进程意外终止")
 
             line = self.process.stdout.readline().strip()
             if line:
                 responses.append(line)
                 if target and target in line:
+                    # 成功返回，重置崩溃计数
+                    self.crash_count = 0
                     return responses
 
         raise TimeoutError(f"引擎响应超时（{max_time}秒）")
 
-    def get_best_move(self, fen: str, think_time: int = 2000, depth: int = None) -> dict:
+    def get_best_move(self, fen: str, think_time: int = 8000, depth: int = None) -> dict:
         """
-        获取最佳走法
+        获取最佳走法，增加健壮性处理
 
         Args:
             fen: FEN格式棋盘字符串（不含轮到哪方，需要手动添加）
@@ -139,16 +177,23 @@ class PikafishEngine:
             dict: 包含best_move, score, pv等信息
         """
         try:
+            # 调用前确保引擎存活
+            self._ensure_engine_alive()
+
+            # 降级策略：如果连续崩溃超过2次，限制搜索强度
+            if self.crash_count > 2:
+                logger.warning(f"引擎不稳定（崩溃{self.crash_count}次），启用降级模式")
+                if depth is None:
+                    depth = 12  # 限制搜索深度
+                think_time = min(think_time, 10000)  # 限制最大思考时间
+
             # 清除之前的搜索状态
             self._send_command("isready")
             self._wait_for_response("readyok")
 
             # 自动判断执棋颜色
             rows = fen.split('/')
-            # 检查前5行（黑方半场）是否有小写k（红帅）
             my_color_is_red = any('k' in row for row in rows[:5])
-
-            # 引擎走另一方
             engine_turn = 'b' if my_color_is_red else 'w'
 
             full_fen = f"{fen} {engine_turn} - - 0 1"
@@ -162,8 +207,9 @@ class PikafishEngine:
 
             self._send_command(go_command)
 
-            # 接收输出
-            responses = self._wait_for_response("bestmove", max_time=(think_time / 1000) + 2)
+            # 接收输出，增加超时缓冲
+            wait_time = (think_time / 1000) + 15  # 原时间 + 15秒缓冲
+            responses = self._wait_for_response("bestmove", max_time=wait_time)
 
             # 解析最佳走法
             best_move = None
@@ -172,11 +218,10 @@ class PikafishEngine:
 
             for line in responses:
                 if line.startswith("info") and "score" in line:
-                    # 提取分数
                     parts = line.split()
                     if "cp" in parts:
                         score_idx = parts.index("cp") + 1
-                        score = int(parts[score_idx]) / 100  # 转换为"兵"单位
+                        score = int(parts[score_idx]) / 100
                     elif "mate" in parts:
                         score_idx = parts.index("mate") + 1
                         score = f"MateIn{parts[score_idx]}"
@@ -196,6 +241,29 @@ class PikafishEngine:
                 "responses": responses
             }
 
+        except RuntimeError as e:
+            if "引擎进程意外终止" in str(e):
+                # 标记进程已死，下次调用时会自动重启
+                self.process = None
+                logger.error(f"引擎分析中崩溃，累计{self.crash_count}次")
+                return {
+                    "best_move": None,
+                    "score": None,
+                    "pv": [],
+                    "fen": fen,
+                    "error": "engine_crashed"
+                }
+            raise
+
+        except TimeoutError as e:
+            logger.warning(f"引擎分析超时: {e}")
+            return {
+                "best_move": None,
+                "score": None,
+                "pv": [],
+                "fen": fen,
+                "error": "timeout"
+            }
         except Exception as e:
             logger.error(f"引擎分析出错: {e}")
             return {
