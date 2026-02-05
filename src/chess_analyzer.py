@@ -13,18 +13,11 @@ from typing import Tuple, List, Optional, Dict
 import time
 import logging
 from datetime import datetime
+from .chess_validator import ChessboardValidator, CATEGORY_MAP, CATEGORY_MAP_REVERSE
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-
-# 棋子映射
-CATEGORY_MAP = {
-    '.': '.', 'x': 'x',
-    '红帅': 'k', '红士': 'a', '红相': 'b', '红马': 'n', '红车': 'r', '红炮': 'c', '红兵': 'p',
-    '黑将': 'K', '黑仕': 'A', '黑象': 'B', '黑傌': 'N', '黑車': 'R', '黑砲': 'C', '黑卒': 'P',
-}
-CATEGORY_MAP_REVERSE = {v: k for k, v in CATEGORY_MAP.items()}
 
 project_root = Path(__file__).parent.parent
 core_package_path = project_root / "Chinese_Chess_Recognition"
@@ -193,8 +186,12 @@ class PikafishEngine:
 
             # 自动判断执棋颜色
             rows = fen.split('/')
-            my_color_is_red = any('k' in row for row in rows[:5])
-            engine_turn = 'b' if my_color_is_red else 'w'
+            my_color_is_red = any('K' in row for row in rows[:5])
+            if my_color_is_red:
+                logger.info("用户执红棋")
+            else:
+                logger.info("用户执黑棋")
+            engine_turn = 'w' if my_color_is_red else 'b'
 
             full_fen = f"{fen} {engine_turn} - - 0 1"
             self._send_command(f"position fen {full_fen}")
@@ -305,13 +302,19 @@ class ChessboardDetector:
                 pose_model_path=pose_model_path,
                 full_classifier_model_path=full_classifier_model_path
             )
+
+            # 初始化校验器
+            self.validator = ChessboardValidator()
+            self.enable_red_flip = True  # 翻转开关
+
             logger.info("✅ 棋盘检测器初始化完成")
             
         except ImportError as e:
             logger.warning(f"无法导入原始检测器: {e}")
             logger.info("使用模拟检测器进行测试")
             self.detector = None
-    
+            self.validator = None
+
     def detect(self, image: np.ndarray) -> Optional[Dict]:
         """
         检测棋盘
@@ -332,13 +335,48 @@ class ChessboardDetector:
                 return None
                 
             original_with_keypoints, transformed_board, cell_labels_str, scores, time_info = result
-            
+
+            # 1. 解析为二维完整名称
+            layout_2d_short = [list(row) for row in cell_labels_str.strip().split('\n')]
+            layout_2d_full = [[CATEGORY_MAP_REVERSE.get(p, '点') for p in row]
+                              for row in layout_2d_short]
+
+            # 2. 调用校验器（只检测，不修改）
+            validation_report = self.validator.validate_per_cell_red(
+                transformed_board, layout_2d_full, scores
+            )
+
+            # 3. 如果开关打开，执行硬翻转
+            # import pdb; pdb.set_trace()
+            corrected_layout = layout_2d_full
+            corrected_scores = scores
+            flip_records = validation_report['recommend_flip']
+
+            if self.enable_red_flip and flip_records:
+                # 执行翻转
+                corrected_layout = [row[:] for row in layout_2d_full]  # 深拷贝
+                corrected_scores = [row.copy() for row in scores]
+
+                for flip in flip_records:
+                    i, j = flip['pos']
+                    corrected_layout[i][j] = flip['to']
+                    corrected_scores[i][j] = scores[i][j] * 0.6  # 降低置信度
+
+                logger.info(f"🔄 已硬翻转{len(flip_records)}个棋子")
+
+                # 转回 short 格式
+                layout_2d_short = [[CATEGORY_MAP.get(p, '.') for p in row]
+                                   for row in corrected_layout]
+                cell_labels_str = '\n'.join([''.join(row) for row in layout_2d_short])
+                scores = corrected_scores
+
             return {
                 'original_with_keypoints': original_with_keypoints,
                 'transformed_board': transformed_board,
                 'cell_labels_str': cell_labels_str,
                 'scores': scores,
-                'time_info': time_info
+                'time_info': time_info,
+                'validation_report': validation_report if self.validator else None
             }
             
         except Exception as e:
@@ -426,7 +464,7 @@ class XiangqiAnalyzer:
             if detect_result is None:
                 logger.error("棋盘检测失败")
                 return None
-            
+
             # 解析布局
             pgn_rows = detect_result['cell_labels_str'].strip().split('\n')
             layout_pgn = [list(row.strip()) for row in pgn_rows]
