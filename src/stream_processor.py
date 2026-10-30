@@ -15,6 +15,41 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+def parse_region(value) -> Optional[Tuple[int, int, int, int]]:
+    """解析截图区域配置
+
+    Args:
+        value: "x,y,width,height" 形式的字符串，或 (x, y, width, height) 序列
+
+    Returns:
+        Tuple: (x, y, width, height)，格式非法时返回 None
+    """
+    if isinstance(value, (tuple, list)) and len(value) == 4:
+        try:
+            region = tuple(int(item) for item in value)
+        except (TypeError, ValueError):
+            return None
+        return region if region[2] > 0 and region[3] > 0 else None
+
+    if not value or not isinstance(value, str):
+        return None
+
+    # 兼容中文逗号和空格分隔
+    parts = value.replace('，', ',').split(',')
+    if len(parts) != 4:
+        return None
+
+    try:
+        region = tuple(int(part.strip()) for part in parts)
+    except ValueError:
+        return None
+
+    if region[2] <= 0 or region[3] <= 0:
+        return None
+
+    return region
+
+
 class RTMPStreamProcessor:
     """RTMP/RTSP流处理器"""
     
@@ -359,8 +394,12 @@ class EmulatorCapture:
         Returns:
             截图或None
         """
+        # 模拟器可能比服务启动得晚，这里再查找一次窗口
         if not self.window_title and not region:
-            logger.error("未指定窗口标题或截图区域")
+            self.window_title = self._find_emulator_window()
+        
+        if not self.window_title and not region:
+            logger.error(f"未找到{self.emulator_name}窗口，请检查模拟器是否运行或手动填写窗口标题")
             return None
         
         return self.screen_capture.capture_window(self.window_title, region)

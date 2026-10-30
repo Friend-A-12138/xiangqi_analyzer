@@ -59,11 +59,19 @@
                         </div>
                         
                         <div class="mb-3" id="emulator-config" style="display: none;">
-                            <label for="emulator-name" class="form-label">模拟器名称</label>
-                            <input type="text" class="form-control" id="emulator-name" 
-                                   value="{{ config.source_value or 'MuMu' }}" placeholder="MuMu">
+                            <label for="emulator-name" class="form-label">模拟器名称或窗口标题</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="emulator-name" 
+                                       value="{{ config.source_value or 'MuMu' }}" placeholder="MuMu">
+                                <button class="btn btn-outline-secondary" type="button" onclick="refreshWindows()">
+                                    <i class="bi bi-arrow-clockwise"></i> 刷新窗口
+                                </button>
+                            </div>
+                            <select class="form-select mt-2" id="window-select" style="display: none;">
+                                <option value="">（选择系统窗口）</option>
+                            </select>
                             <div class="form-text">
-                                支持: MuMu, 雷电, BlueStacks, Nox, LDPlayer等
+                                支持: MuMu, 雷电, BlueStacks, Nox, LDPlayer等；也可直接填写完整窗口标题
                             </div>
                         </div>
                         
@@ -183,9 +191,45 @@ document.addEventListener('DOMContentLoaded', function() {
     // 监听表单提交
     document.getElementById('settings-form').addEventListener('submit', saveSettings);
     
+    // 选择系统窗口后自动填入模拟器名称输入框
+    document.getElementById('window-select').addEventListener('change', function() {
+        if (this.value) {
+            document.getElementById('emulator-name').value = this.value;
+        }
+    });
+    
     // 更新在线用户数
     updateActiveUsers();
 });
+
+// 刷新系统窗口列表（用于选择模拟器窗口）
+function refreshWindows() {
+    const select = document.getElementById('window-select');
+    
+    fetch('/api/windows')
+        .then(response => response.json())
+        .then(data => {
+            const windows = data.windows || [];
+            select.innerHTML = '<option value="">（选择系统窗口）</option>';
+            
+            windows.forEach(function(title) {
+                const option = document.createElement('option');
+                option.value = title;
+                option.textContent = title;
+                select.appendChild(option);
+            });
+            
+            if (windows.length === 0) {
+                select.innerHTML = '<option value="">未获取到窗口列表（需安装pyautogui并在桌面环境下运行）</option>';
+            }
+            
+            select.style.display = 'block';
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('获取窗口列表失败: ' + error.message);
+        });
+}
 
 // 显示/隐藏信号源配置
 function toggleSourceConfig() {

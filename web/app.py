@@ -26,7 +26,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.chess_analyzer import XiangqiAnalyzer, analyze_image_file
 from src.config import (check_config, default_config, load_config,
                         normalize_config, save_config)
-from src.stream_processor import RTMPStreamProcessor, EmulatorCapture, create_screen_capture
+from src.stream_processor import (RTMPStreamProcessor, EmulatorCapture,
+                                  create_screen_capture, parse_region)
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -44,6 +45,7 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 analyzer = None
 stream_processor = None
 emulator_capture = None
+screen_capture = None
 capture_thread = None
 analysis_thread = None
 running = False
@@ -291,6 +293,21 @@ def get_status():
         'max_users': user_manager.max_users
     })
 
+@app.route('/api/windows')
+def list_windows():
+    """列出当前可截图的窗口标题，供模拟器选择"""
+    session_id = session.get('session_id')
+    if not session_id or not user_manager.is_logged_in(session_id):
+        return jsonify({'error': '未登录'}), 401
+    
+    try:
+        capture = create_screen_capture()
+        return jsonify({'windows': capture.list_windows()})
+        
+    except Exception as e:
+        logger.error(f"获取窗口列表失败: {e}")
+        return jsonify({'windows': [], 'error': str(e)})
+
 @app.route('/api/config', methods=['POST'])
 def update_config():
     """更新配置"""
@@ -447,7 +464,7 @@ def handle_disconnect():
 # 后台线程
 def capture_loop():
     """捕获循环"""
-    global stream_processor, emulator_capture
+    global stream_processor, emulator_capture, screen_capture
     
     while running:
         try:
@@ -464,20 +481,21 @@ def capture_loop():
             
             elif analysis_config['source_type'] == 'emulator':
                 if not emulator_capture:
-                    emulator_capture = EmulatorCapture(analysis_config.get('emulator_name', 'MuMu'))
+                    # source_value 既可以是模拟器名称，也可以是完整窗口标题
+                    emulator_capture = EmulatorCapture(analysis_config['source_value'] or 'MuMu')
                 
                 frame = emulator_capture.capture()
             
             elif analysis_config['source_type'] == 'screen':
-                if 'screen_capture' not in globals():
-                    global screen_capture
+                if not screen_capture:
                     screen_capture = create_screen_capture()
                 
-                region = analysis_config.get('screen_region')
-                if region:
-                    frame = screen_capture.capture_window(region=region)
-                else:
-                    frame = screen_capture.capture_window()
+                region = parse_region(analysis_config['source_value'])
+                if analysis_config['source_value'] and region is None:
+                    logger.warning(f"截图区域格式错误: {analysis_config['source_value']}，"
+                                   "应为 x,y,width,height，本次改为全屏截图")
+                
+                frame = screen_capture.capture_window(region=region)
             
             # 如果有新帧，可以通过socket发送给前端预览
             if frame is not None:
@@ -510,11 +528,10 @@ def analysis_loop():
                 frame = stream_processor.get_latest_frame()
             elif analysis_config['source_type'] == 'emulator' and emulator_capture:
                 frame = emulator_capture.capture()
-            elif analysis_config['source_type'] == 'screen':
-                global screen_capture
-                if 'screen_capture' in globals():
-                    region = analysis_config.get('screen_region')
-                    frame = screen_capture.capture_window(region=region)
+            elif analysis_config['source_type'] == 'screen' and screen_capture:
+                # 区域格式非法时返回 None，按全屏截图
+                frame = screen_capture.capture_window(
+                    region=parse_region(analysis_config['source_value']))
             
             # 分析帧
             if frame is not None and analyzer:
