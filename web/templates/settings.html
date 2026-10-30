@@ -150,15 +150,28 @@
             </div>
             <div class="card-body">
                 <p class="text-muted small">
-                    当前在线用户: <span id="active-users">0</span> / {{ config.max_users or 5 }}
+                    当前在线用户: <span id="active-users">0</span> / <span id="max-users">{{ config.max_users or 5 }}</span>
                 </p>
+                
+                <table class="table table-sm align-middle">
+                    <thead>
+                        <tr>
+                            <th>用户名</th>
+                            <th>最近登录</th>
+                            <th style="width: 70px;"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="user-list">
+                        <tr><td colspan="3" class="text-muted small">加载中...</td></tr>
+                    </tbody>
+                </table>
                 
                 <h6>添加新用户</h6>
                 <div class="mb-3">
                     <input type="text" class="form-control form-control-sm" id="new-username" placeholder="用户名">
                 </div>
                 <div class="mb-3">
-                    <input type="password" class="form-control form-control-sm" id="new-password" placeholder="密码">
+                    <input type="password" class="form-control form-control-sm" id="new-password" placeholder="密码（至少6位）">
                 </div>
                 <button class="btn btn-sm btn-outline-primary" onclick="addUser()">
                     <i class="bi bi-person-plus"></i> 添加用户
@@ -200,6 +213,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 更新在线用户数
     updateActiveUsers();
+    loadUsers();
 });
 
 // 刷新系统窗口列表（用于选择模拟器窗口）
@@ -307,9 +321,55 @@ function updateActiveUsers() {
         .catch(error => console.error('Error:', error));
 }
 
+// 加载用户列表
+function loadUsers() {
+    fetch('/api/users')
+        .then(response => response.json())
+        .then(data => {
+            const tbody = document.getElementById('user-list');
+            tbody.innerHTML = '';
+            
+            (data.users || []).forEach(function(user) {
+                const tr = document.createElement('tr');
+                
+                // 用户名 + 在线标记
+                const nameTd = document.createElement('td');
+                nameTd.textContent = user.username;
+                if (user.online) {
+                    const badge = document.createElement('span');
+                    badge.className = 'badge bg-success ms-2';
+                    badge.textContent = '在线';
+                    nameTd.appendChild(badge);
+                }
+                tr.appendChild(nameTd);
+                
+                // 最近登录时间
+                const loginTd = document.createElement('td');
+                loginTd.className = 'text-muted small';
+                loginTd.textContent = user.last_login ? user.last_login.replace('T', ' ') : '从未登录';
+                tr.appendChild(loginTd);
+                
+                // 删除按钮
+                const actionTd = document.createElement('td');
+                const btn = document.createElement('button');
+                btn.className = 'btn btn-sm btn-outline-danger';
+                btn.textContent = '删除';
+                btn.onclick = function() { deleteUser(user.username); };
+                actionTd.appendChild(btn);
+                tr.appendChild(actionTd);
+                
+                tbody.appendChild(tr);
+            });
+            
+            document.getElementById('active-users').textContent = data.active_users;
+            document.getElementById('max-users').textContent = data.max_users;
+        })
+        .catch(error => console.error('Error:', error));
+}
+
 // 添加用户
 function addUser() {
-    const username = document.getElementById('new-username').value;
+    const username = document.getElementById('new-username').value.trim();
     const password = document.getElementById('new-password').value;
     
     if (!username || !password) {
@@ -317,13 +377,50 @@ function addUser() {
         return;
     }
     
-    // 这里应该调用后端API添加用户
-    // 目前只是演示，实际应用中需要实现后端接口
-    alert('添加用户功能需要后端支持\n用户名: ' + username + '\n密码: ' + password);
+    fetch('/api/users', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ username: username, password: password })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            alert('添加失败: ' + data.error);
+            return;
+        }
+        
+        // 清空输入框并刷新列表
+        document.getElementById('new-username').value = '';
+        document.getElementById('new-password').value = '';
+        loadUsers();
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('添加失败: ' + error.message);
+    });
+}
+
+// 删除用户
+function deleteUser(username) {
+    if (!confirm('确定删除用户 ' + username + ' 吗？')) {
+        return;
+    }
     
-    // 清空输入框
-    document.getElementById('new-username').value = '';
-    document.getElementById('new-password').value = '';
+    fetch('/api/users/' + encodeURIComponent(username), { method: 'DELETE' })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('删除失败: ' + data.error);
+                return;
+            }
+            loadUsers();
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('删除失败: ' + error.message);
+        });
 }
 </script>
 {% endblock %}

@@ -11,6 +11,8 @@ import json
 import os
 import sys
 import re
+import hashlib
+import hmac
 from pathlib import Path
 from datetime import datetime, timedelta
 import logging
@@ -40,6 +42,9 @@ app.config['SESSION_TYPE'] = 'filesystem'
 
 # 创建SocketIO
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+
+# 密码哈希迭代次数
+PASSWORD_ITERATIONS = 100000
 
 # 全局变量
 analyzer = None
@@ -166,37 +171,141 @@ def get_analyzer():
 
 # 用户管理
 class UserManager:
-    """用户管理器"""
+    """用户管理器
+
+    密码使用 PBKDF2-SHA256 加盐存储，用户信息可持久化到 JSON 文件。
+    """
     
-    def __init__(self):
+    def __init__(self, users_file=None):
         self.users = {}
         self.active_sessions = {}
         self.max_users = 5  # 最大用户数
+        self.users_file = Path(users_file) if users_file else None
+    
+    @staticmethod
+    def _hash_password(password: str, salt: str = None) -> str:
+        """生成密码哈希
+        
+        Args:
+            password: 明文密码
+            salt: 盐值（十六进制），为空时随机生成
+            
+        Returns:
+            str: pbkdf2_sha256$迭代次数$盐$哈希
+        """
+        salt = salt or os.urandom(16).hex()
+        digest = hashlib.pbkdf2_hmac(
+            'sha256', password.encode('utf-8'), bytes.fromhex(salt), PASSWORD_ITERATIONS)
+        return f"pbkdf2_sha256${PASSWORD_ITERATIONS}${salt}${digest.hex()}"
+    
+    @staticmethod
+    def _verify_password(password: str, stored: str) -> bool:
+        """校验密码哈希"""
+        try:
+            algorithm, iterations, salt, digest = stored.split('$')
+            if algorithm != 'pbkdf2_sha256':
+                return False
+            computed = hashlib.pbkdf2_hmac(
+                'sha256', password.encode('utf-8'), bytes.fromhex(salt), int(iterations))
+            return hmac.compare_digest(computed.hex(), digest)
+        except (ValueError, AttributeError):
+            return False
     
     def add_user(self, username: str, password: str) -> bool:
-        """添加用户"""
+        """添加用户
+        
+        Args:
+            username: 用户名
+            password: 明文密码（内部会哈希保存）
+            
+        Returns:
+            bool: 是否添加成功
+        """
         if len(self.users) >= self.max_users:
+            logger.warning(f"用户数量已达上限: {self.max_users}")
             return False
         
         if username in self.users:
             return False
         
         self.users[username] = {
-            'password': password,  # 实际应用中应该加密存储
+            'password': self._hash_password(password),
             'created_at': datetime.now(),
             'last_login': None
         }
+        self.save()
         return True
     
-    def authenticate(self, username: str, password: str) -> bool:
-        """验证用户"""
+    def remove_user(self, username: str) -> bool:
+        """删除用户，并清理其会话
+        
+        Args:
+            username: 用户名
+            
+        Returns:
+            bool: 是否删除成功
+        """
         if username not in self.users:
             return False
         
-        return self.users[username]['password'] == password
+        del self.users[username]
+        
+        for session_id in [sid for sid, info in self.active_sessions.items()
+                           if info['username'] == username]:
+            del self.active_sessions[session_id]
+        
+        self.save()
+        return True
+    
+    def list_users(self) -> list:
+        """列出所有用户（不含密码）"""
+        online_names = {info['username'] for info in self.active_sessions.values()}
+        
+        return [{
+            'username': name,
+            'created_at': info['created_at'].isoformat(timespec='seconds'),
+            'last_login': info['last_login'].isoformat(timespec='seconds')
+                          if info['last_login'] else None,
+            'online': name in online_names
+        } for name, info in sorted(self.users.items())]
+    
+    def set_max_users(self, count: int):
+        """设置用户数量上限"""
+        try:
+            self.max_users = max(1, int(count))
+        except (TypeError, ValueError):
+            self.max_users = 5
+    
+    def authenticate(self, username: str, password: str) -> bool:
+        """验证用户
+        
+        兼容旧版本保存的明文密码，校验通过后自动升级为哈希存储。
+        """
+        user = self.users.get(username)
+        if not user:
+            return False
+        
+        stored = str(user.get('password', ''))
+        if stored.startswith('pbkdf2_sha256$'):
+            return self._verify_password(password, stored)
+        
+        if hmac.compare_digest(stored, str(password)):
+            user['password'] = self._hash_password(password)
+            self.save()
+            return True
+        
+        return False
     
     def login(self, username: str, session_id: str):
-        """用户登录"""
+        """用户登录
+        
+        Args:
+            username: 用户名
+            session_id: 会话ID
+        """
+        # 登录时顺便清理过期会话，避免长期占用在线名额
+        self.cleanup_expired_sessions()
+        
         self.active_sessions[session_id] = {
             'username': username,
             'login_time': datetime.now()
@@ -216,6 +325,70 @@ class UserManager:
     def get_active_user_count(self) -> int:
         """获取在线用户数"""
         return len(self.active_sessions)
+    
+    def save(self) -> bool:
+        """把用户信息写入文件
+        
+        Returns:
+            bool: 是否保存成功（未配置文件路径时返回 False）
+        """
+        if not self.users_file:
+            return False
+        
+        try:
+            self.users_file.parent.mkdir(parents=True, exist_ok=True)
+            
+            data = {
+                name: {
+                    'password': info['password'],
+                    'created_at': info['created_at'].isoformat(),
+                    'last_login': info['last_login'].isoformat()
+                                  if info['last_login'] else None
+                }
+                for name, info in self.users.items()
+            }
+            
+            with open(self.users_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"保存用户信息失败: {e}")
+            return False
+    
+    def load(self) -> bool:
+        """从文件读取用户信息
+        
+        Returns:
+            bool: 是否读取成功
+        """
+        if not self.users_file or not self.users_file.exists():
+            return False
+        
+        try:
+            with open(self.users_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            if not isinstance(data, dict):
+                logger.error(f"用户文件格式错误: {self.users_file}")
+                return False
+            
+            for name, info in data.items():
+                self.users[name] = {
+                    'password': str(info.get('password', '')),
+                    'created_at': datetime.fromisoformat(info['created_at'])
+                                  if info.get('created_at') else datetime.now(),
+                    'last_login': datetime.fromisoformat(info['last_login'])
+                                  if info.get('last_login') else None
+                }
+            
+            logger.info(f"已加载 {len(self.users)} 个用户: {self.users_file}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"加载用户信息失败: {e}")
+            return False
     
     def cleanup_expired_sessions(self, timeout_hours: int = 24):
         """清理过期会话"""
@@ -307,6 +480,63 @@ def list_windows():
     except Exception as e:
         logger.error(f"获取窗口列表失败: {e}")
         return jsonify({'windows': [], 'error': str(e)})
+
+@app.route('/api/users', methods=['GET', 'POST'])
+def manage_users():
+    """用户管理：查询用户列表或添加用户"""
+    session_id = session.get('session_id')
+    if not session_id or not user_manager.is_logged_in(session_id):
+        return jsonify({'error': '未登录'}), 401
+    
+    if request.method == 'GET':
+        return jsonify({
+            'users': user_manager.list_users(),
+            'active_users': user_manager.get_active_user_count(),
+            'max_users': user_manager.max_users
+        })
+    
+    try:
+        data = request.get_json(silent=True) or {}
+        username = str(data.get('username', '')).strip()
+        password = str(data.get('password', ''))
+        
+        if not username or not password:
+            return jsonify({'error': '用户名和密码不能为空'}), 400
+        
+        if len(password) < 6:
+            return jsonify({'error': '密码长度不能少于6位'}), 400
+        
+        if username in user_manager.users:
+            return jsonify({'error': f'用户已存在: {username}'}), 400
+        
+        if not user_manager.add_user(username, password):
+            return jsonify({'error': f'用户数量已达上限（{user_manager.max_users}人）'}), 400
+        
+        logger.info(f"已添加用户: {username}")
+        return jsonify({'success': True, 'users': user_manager.list_users()})
+        
+    except Exception as e:
+        logger.error(f"添加用户失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/users/<username>', methods=['DELETE'])
+def delete_user(username):
+    """删除用户"""
+    session_id = session.get('session_id')
+    if not session_id or not user_manager.is_logged_in(session_id):
+        return jsonify({'error': '未登录'}), 401
+    
+    if username == session.get('username'):
+        return jsonify({'error': '不能删除当前登录的用户'}), 400
+    
+    if len(user_manager.users) <= 1:
+        return jsonify({'error': '至少需要保留一个用户'}), 400
+    
+    if not user_manager.remove_user(username):
+        return jsonify({'error': f'用户不存在: {username}'}), 404
+    
+    logger.info(f"已删除用户: {username}")
+    return jsonify({'success': True, 'users': user_manager.list_users()})
 
 @app.route('/api/config', methods=['POST'])
 def update_config():
@@ -566,11 +796,22 @@ def init_app(config=None, config_file_path=None):
     config_file = config_file_path
     analysis_config = normalize_config(config) if config else load_config(config_file_path)
     
-    # 添加默认用户
-    user_manager.add_user('admin', 'admin123')
-    user_manager.add_user('guest', 'guest123')
-    
     project_root = Path(__file__).parent.parent
+    
+    # 用户信息保存在配置文件同目录的 users.json 中
+    user_manager.set_max_users(analysis_config.get('max_users', 5))
+    if config_file_path:
+        user_manager.users_file = Path(config_file_path).with_name('users.json')
+    else:
+        user_manager.users_file = project_root / 'config' / 'users.json'
+    
+    user_manager.load()
+    
+    # 首次运行（没有用户文件）时创建默认用户
+    if not user_manager.users:
+        user_manager.add_user('admin', 'admin123')
+        user_manager.add_user('guest', 'guest123')
+        logger.info("已创建默认用户: admin / admin123, guest / guest123")
     
     # 未配置引擎时，尝试使用 Pikafish 子模块中的默认位置
     if not analysis_config['engine_path']:
@@ -599,9 +840,8 @@ def init_app(config=None, config_file_path=None):
                        "请执行: git submodule update --init --recursive")
     
     logger.info("应用初始化完成")
-    logger.info("默认用户:")
-    logger.info("  admin / admin123")
-    logger.info("  guest / guest123")
+    logger.info(f"用户数量: {len(user_manager.users)}/{user_manager.max_users}"
+                f"（用户文件: {user_manager.users_file}）")
     
     return analysis_config
 

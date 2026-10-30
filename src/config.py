@@ -23,6 +23,7 @@ DEFAULT_CONFIG = {
     'source_value': '',
     'think_time': 2000,
     'analysis_interval': 3,
+    'max_users': 5,
     'enable_tunnel': False,
     'tunnel_type': 'ngrok',
     'tunnel_config': {
@@ -38,6 +39,7 @@ TUNNEL_TYPES = ('ngrok', 'frp')
 # 参数取值范围（与 Web 设置页滑块保持一致）
 THINK_TIME_RANGE = (500, 10000)
 ANALYSIS_INTERVAL_RANGE = (1, 60)
+MAX_USERS_RANGE = (1, 20)
 
 
 def config_path() -> Path:
@@ -164,6 +166,8 @@ def normalize_config(config: Dict[str, Any]) -> Dict[str, Any]:
     result['analysis_interval'] = _clamp_int(
         result['analysis_interval'], ANALYSIS_INTERVAL_RANGE,
         DEFAULT_CONFIG['analysis_interval'])
+    result['max_users'] = _clamp_int(
+        result['max_users'], MAX_USERS_RANGE, DEFAULT_CONFIG['max_users'])
 
     # 布尔参数（兼容 "true"/1 这类来自JSON或表单的值）
     result['enable_tunnel'] = _to_bool(result['enable_tunnel'])
