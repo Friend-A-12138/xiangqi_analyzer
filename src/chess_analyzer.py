@@ -309,11 +309,12 @@ class ChessboardDetector:
 
             logger.info("✅ 棋盘检测器初始化完成")
             
-        except ImportError as e:
+        except (ImportError, RuntimeError) as e:
             logger.warning(f"无法导入原始检测器: {e}")
-            logger.info("使用模拟检测器进行测试")
+            logger.warning("使用模拟检测器（仅用于链路验证，识别结果不可信）")
             self.detector = None
             self.validator = None
+            self.enable_red_flip = True
 
     def detect(self, image: np.ndarray) -> Optional[Dict]:
         """

@@ -80,6 +80,88 @@ def make_json_serializable(obj):
         return [make_json_serializable(item) for item in obj]
     return obj
 
+def encode_image(image, quality: int = 85):
+    """把 OpenCV 图像编码为 base64 data URI
+
+    Args:
+        image: BGR 图像（numpy数组）
+        quality: JPEG 质量
+
+    Returns:
+        str: data URI，图像无效时返回 None
+    """
+    if image is None or not isinstance(image, np.ndarray) or image.size == 0:
+        return None
+
+    try:
+        ok, buffer = cv2.imencode('.jpg', image, [cv2.IMWRITE_JPEG_QUALITY, quality])
+        if not ok:
+            return None
+        return f"data:image/jpeg;base64,{base64.b64encode(buffer).decode()}"
+    except Exception as e:
+        logger.error(f"图像编码失败: {e}")
+        return None
+
+def serialize_result(result: dict, include_images: bool = False) -> dict:
+    """把分析结果转换为可 JSON 序列化的字典
+
+    Args:
+        result: 分析器返回的原始结果
+        include_images: 是否附带调试图（WebSocket 推送时不附带）
+
+    Returns:
+        dict: 可直接 jsonify 的结果
+    """
+    if not result:
+        return {}
+
+    image_keys = ('original_with_keypoints', 'transformed_board')
+
+    # 图像单独处理，其余字段递归转换为原生类型
+    data = make_json_serializable(
+        {key: value for key, value in result.items() if key not in image_keys})
+
+    # 关键数值字段做容错，前端会直接调用 toFixed
+    data['detect_time'] = safe_float(data.get('detect_time'), 0.0)
+    data['confidence'] = safe_float(data.get('confidence'), 0.0)
+
+    if include_images:
+        for key in image_keys:
+            data[key] = encode_image(result.get(key))
+
+    return data
+
+def get_analyzer():
+    """获取分析器实例，未初始化时按当前配置创建
+
+    Returns:
+        tuple: (分析器, 错误信息)，失败时分析器为 None
+    """
+    global analyzer
+
+    if analyzer is not None:
+        return analyzer, None
+
+    engine_path = analysis_config.get('engine_path')
+    if not engine_path:
+        return None, '请先在设置页配置Pikafish引擎路径'
+
+    if not Path(engine_path).exists():
+        return None, f'Pikafish引擎不存在: {engine_path}'
+
+    try:
+        analyzer = XiangqiAnalyzer(
+            engine_path=engine_path,
+            pose_model_path=analysis_config.get('pose_model_path', ''),
+            classifier_model_path=analysis_config.get('classifier_model_path', '')
+        )
+        logger.info("✅ 分析器已按需初始化")
+        return analyzer, None
+
+    except Exception as e:
+        logger.error(f"初始化分析器失败: {e}")
+        return None, f'初始化分析器失败: {e}'
+
 # 用户管理
 class UserManager:
     """用户管理器"""
@@ -212,6 +294,8 @@ def get_status():
 @app.route('/api/config', methods=['POST'])
 def update_config():
     """更新配置"""
+    global analyzer
+    
     session_id = session.get('session_id')
     if not session_id or not user_manager.is_logged_in(session_id):
         return jsonify({'error': '未登录'}), 401
@@ -226,6 +310,9 @@ def update_config():
             logger.warning(f"配置检查: {problem}")
         
         analysis_config.update(updated)
+        
+        # 配置变化后丢弃旧分析器，下次分析时按新配置重建
+        analyzer = None
         
         # 写回配置文件，保证重启后配置仍然生效
         if not save_config(analysis_config, config_file):
@@ -251,16 +338,10 @@ def start_analysis():
         return jsonify({'error': '分析已在运行中'})
     
     try:
-        # 检查必需配置
-        if not analysis_config['engine_path']:
-            return jsonify({'error': '请先设置Pikafish引擎路径'}), 400
-        
-        # 初始化分析器
-        analyzer = XiangqiAnalyzer(
-            engine_path=analysis_config['engine_path'],
-            pose_model_path=analysis_config.get('pose_model_path', ''),
-            classifier_model_path=analysis_config.get('classifier_model_path', '')
-        )
+        # 按需创建分析器，无需先点击"开始分析"
+        engine, error = get_analyzer()
+        if error:
+            return jsonify({'error': error}), 400
         
         running = True
         
@@ -277,6 +358,7 @@ def start_analysis():
         
     except Exception as e:
         logger.error(f"启动分析失败: {e}")
+        running = False
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/stop', methods=['POST'])
@@ -300,7 +382,7 @@ def get_latest_result():
         return jsonify({'error': '未登录'}), 401
     
     if latest_result:
-        return jsonify(latest_result)
+        return jsonify(serialize_result(latest_result, include_images=True))
     else:
         return jsonify({'error': '暂无分析结果'}), 404
 
@@ -321,36 +403,26 @@ def upload_image():
         
         # 读取图片
         image_data = file.read()
+        if not image_data:
+            return jsonify({'error': '图片内容为空'}), 400
+        
         nparr = np.frombuffer(image_data, np.uint8)
         image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         
         if image is None:
             return jsonify({'error': '无法读取图片'}), 400
         
-        # 分析图片
-        if not analyzer:
-            return jsonify({'error': '分析器未初始化'}), 500
+        # 按需创建分析器，无需先点击"开始分析"
+        current_analyzer, error = get_analyzer()
+        if error:
+            return jsonify({'error': error}), 400
         
-        result = analyzer.analyze_image(image, analysis_config['think_time'])
-
+        result = current_analyzer.analyze_image(image, analysis_config['think_time'])
+        
         if result:
-            # 第一步：转换所有 numpy 类型
-            serializable_result = make_json_serializable(result)
-
-            # 第二步：确保关键字段是数字（修复前端 toFixed 错误）
-            serializable_result['detect_time'] = safe_float(serializable_result.get('detect_time'), 0.0)
-            serializable_result['confidence'] = safe_float(serializable_result.get('confidence'), 0.0)
-
-            # 第三步：转换图像为 base64（用原始 result 中的数组）
-            for img_key in ['original_with_keypoints', 'transformed_board']:
-                if img_key in result:
-                    _, buffer = cv2.imencode('.jpg', result[img_key])
-                    img_base64 = base64.b64encode(buffer).decode()
-                    serializable_result[img_key] = f"data:image/jpeg;base64,{img_base64}"
-
-            return jsonify(serializable_result)
+            return jsonify(serialize_result(result, include_images=True))
         else:
-            return jsonify({'error': '分析失败'}), 500
+            return jsonify({'error': '分析失败，请查看日志'}), 500
             
     except Exception as e:
         logger.error(f"上传图片分析失败: {e}")
@@ -451,18 +523,8 @@ def analysis_loop():
                 if result:
                     latest_result = result
                     
-                    # 转换为可序列化格式并通过Socket发送
-                    serializable_result = result.copy()
-                    
-                    # 移除图像数据，只发送文本信息
-                    serializable_result.pop('original_with_keypoints', None)
-                    serializable_result.pop('transformed_board', None)
-                    
-                    # 转换numpy类型
-                    serializable_result['detect_time'] = float(serializable_result['detect_time'])
-                    serializable_result['confidence'] = float(serializable_result['confidence'])
-                    
-                    socketio.emit('analysis_result', serializable_result)
+                    # 只推送文本信息，图像单独走 /api/result
+                    socketio.emit('analysis_result', serialize_result(result))
             
             # 等待下一个分析周期
             time.sleep(analysis_config['analysis_interval'])
