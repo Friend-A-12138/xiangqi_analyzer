@@ -24,6 +24,8 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.chess_analyzer import XiangqiAnalyzer, analyze_image_file
+from src.config import (check_config, default_config, load_config,
+                        normalize_config, save_config)
 from src.stream_processor import RTMPStreamProcessor, EmulatorCapture, create_screen_capture
 
 # 配置日志
@@ -46,16 +48,10 @@ capture_thread = None
 analysis_thread = None
 running = False
 latest_result = None
-analysis_config = {
-    'engine_path': '',
-    'pose_model_path': '',
-    'classifier_model_path': '',
-    'source_type': 'file',  # file, stream, emulator, screen
-    'source_value': '',
-    'think_time': 2000,
-    'analysis_interval': 3,  # 秒
-    'users': {}  # 用户管理
-}
+analysis_config = default_config()
+
+# 当前使用的配置文件路径（由 main.py 传入，Web 保存设置时写回同一个文件）
+config_file = None
 
 def safe_float(value, default=0.0):
     """确保值是浮点数"""
@@ -221,26 +217,22 @@ def update_config():
         return jsonify({'error': '未登录'}), 401
     
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         
-        # 更新配置
-        if 'engine_path' in data:
-            analysis_config['engine_path'] = data.get('engine_path') or analysis_config['engine_path']
-        if 'pose_model_path' in data:
-            analysis_config['pose_model_path'] = data.get('pose_model_path') or analysis_config['pose_model_path']
-        if 'classifier_model_path' in data:
-            analysis_config['classifier_model_path'] = data.get('classifier_model_path') or analysis_config['classifier_model_path']
-        if 'source_type' in data:
-            analysis_config['source_type'] = data['source_type']
-        if 'source_value' in data:
-            analysis_config['source_value'] = data['source_value']
-        if 'think_time' in data:
-            analysis_config['think_time'] = int(data['think_time'])
-        if 'analysis_interval' in data:
-            analysis_config['analysis_interval'] = int(data['analysis_interval'])
+        # 校验并合并配置（非法值会被规范化到合法范围）
+        updated = normalize_config({**analysis_config, **data})
+        warnings = check_config(updated)
+        for problem in warnings:
+            logger.warning(f"配置检查: {problem}")
+        
+        analysis_config.update(updated)
+        
+        # 写回配置文件，保证重启后配置仍然生效
+        if not save_config(analysis_config, config_file):
+            return jsonify({'error': '配置保存失败，请检查配置文件权限'}), 500
         
         logger.info(f"配置已更新: {analysis_config}")
-        return jsonify({'success': True, 'config': analysis_config})
+        return jsonify({'success': True, 'config': analysis_config, 'warnings': warnings})
         
     except Exception as e:
         logger.error(f"更新配置失败: {e}")
@@ -480,46 +472,59 @@ def analysis_loop():
             time.sleep(1)
 
 # 初始化
-def init_app():
-    """初始化应用"""
-    global user_manager
+def init_app(config=None, config_file_path=None):
+    """初始化应用
+    
+    Args:
+        config: 由 main.py 传入的配置（已合并命令行参数），为空时读配置文件
+        config_file_path: 配置文件路径，Web 保存设置时写回该文件
+        
+    Returns:
+        dict: 初始化后的配置
+    """
+    global analysis_config, config_file
+    
+    config_file = config_file_path
+    analysis_config = normalize_config(config) if config else load_config(config_file_path)
     
     # 添加默认用户
     user_manager.add_user('admin', 'admin123')
     user_manager.add_user('guest', 'guest123')
-
-    # ===== 在这里设置真实的默认值 =====
+    
     project_root = Path(__file__).parent.parent
-
-    # 设置默认路径（根据你的实际文件结构）
-    analysis_config.update({
-        'engine_path': str(project_root / 'Pikafish' / 'src' / 'pikafish.exe'),
-        'pose_model_path': str(project_root / 'onnx' / 'pose' / '4_v6-0301.onnx'),
-        'classifier_model_path': str(project_root / 'onnx' / 'layout_recognition' / 'nano_v3-0319.onnx'),
-    })
-
-    # 验证文件是否存在（可选，但推荐）
-    for key, path in analysis_config.items():
-        if key.endswith('_path') and path:  # 只检查路径字段
-            if not Path(path).exists():
-                logger.warning(f"默认路径不存在 {key}: {path}")
-
-    submodule_root = project_root / "Chinese_Chess_Recognition"
-    core_init = submodule_root / "core" / "__init__.py"
-
-    # 确保 __init__.py 存在
-    if not (submodule_root / "__init__.py").exists():
-        (submodule_root / "__init__.py").touch()
-        logger.info("✅ 已创建 Chinese_Chess_Recognition/__init__.py")
-
-    if not core_init.exists():
-        core_init.touch()
-        logger.info("✅ 已创建 Chinese_Chess_Recognition/core/__init__.py")
-
+    
+    # 未配置引擎时，尝试使用 Pikafish 子模块中的默认位置
+    if not analysis_config['engine_path']:
+        candidate = project_root / 'Pikafish' / 'src' / 'pikafish.exe'
+        if candidate.exists():
+            analysis_config['engine_path'] = str(candidate)
+            logger.info(f"使用默认引擎路径: {candidate}")
+        else:
+            logger.warning("未找到默认Pikafish引擎，请在设置页配置引擎路径")
+    
+    # 相对路径的模型文件按项目根目录解析
+    for key in ('pose_model_path', 'classifier_model_path'):
+        path = Path(analysis_config[key])
+        if str(path) and not path.is_absolute() and not path.exists():
+            candidate = project_root / path
+            if candidate.exists():
+                analysis_config[key] = str(candidate)
+    
+    for problem in check_config(analysis_config):
+        logger.warning(f"配置检查: {problem}")
+    
+    # 子模块未初始化时给出明确提示，而不是偷偷创建空文件
+    submodule_root = project_root / 'Chinese_Chess_Recognition'
+    if not (submodule_root / 'core' / 'chessboard_detector.py').exists():
+        logger.warning("检测器子模块未初始化，棋盘识别将退化为模拟数据，"
+                       "请执行: git submodule update --init --recursive")
+    
     logger.info("应用初始化完成")
     logger.info("默认用户:")
     logger.info("  admin / admin123")
     logger.info("  guest / guest123")
+    
+    return analysis_config
 
 # 启动应用
 if __name__ == '__main__':
