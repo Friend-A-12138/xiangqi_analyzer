@@ -1,0 +1,21 @@
+# Python 字节码与缓存
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# 运行日志（保留 logs 目录本身）
+logs/*
+!logs/.gitkeep
+
+# 编辑器与系统临时文件
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+.DS_Store

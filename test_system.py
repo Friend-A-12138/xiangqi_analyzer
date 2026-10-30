@@ -16,6 +16,31 @@ sys.path.insert(0, str(Path(__file__).parent))
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Windows 控制台默认使用 GBK 编码，无法输出 ✓/✗ 等符号
+# 这里强制切换到 UTF-8，避免测试脚本在中文 Windows 上直接崩溃
+try:
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+except Exception:
+    pass
+
+
+def parse_version(version) -> tuple:
+    """把版本号字符串解析为元组，避免用字符串比较版本
+
+    Args:
+        version: 版本号，例如 "4.10.0"
+
+    Returns:
+        tuple: 例如 (4, 10, 0)
+    """
+    parts = []
+    for item in str(version).split('.')[:3]:
+        digits = ''.join(ch for ch in item if ch.isdigit())
+        parts.append(int(digits) if digits else 0)
+    return tuple(parts)
+
+
 # 测试颜色输出
 class Colors:
     GREEN = '\033[92m'
@@ -70,11 +95,12 @@ def test_directory_structure():
     print_header("测试目录结构")
     
     required_dirs = [
-        "core",
+        "src",
         "web",
         "web/templates",
         "config",
-        "logs"
+        "logs",
+        "tests"
     ]
     
     required_files = [
@@ -227,7 +253,7 @@ def test_web_app():
         from web.app import app, socketio
         
         # 测试Flask应用
-        if isinstance(app, type(type)) and hasattr(app, 'run'):
+        if app is not None and hasattr(app, 'run'):
             print_result("Flask应用", True)
         else:
             print_result("Flask应用", False, "Flask应用创建失败")
@@ -270,12 +296,12 @@ def test_dependencies():
     
     # OpenCV版本
     opencv_version = cv2.__version__
-    opencv_ok = cv2.__version__ >= "4.5.0"
+    opencv_ok = parse_version(cv2.__version__) >= (4, 5, 0)
     print_result(f"OpenCV版本: {opencv_version}", opencv_ok)
     
     # NumPy版本
     numpy_version = np.__version__
-    numpy_ok = np.__version__ >= "1.21.0"
+    numpy_ok = parse_version(np.__version__) >= (1, 21, 0)
     print_result(f"NumPy版本: {numpy_version}", numpy_ok)
     
     return version_ok and opencv_ok and numpy_ok
@@ -294,7 +320,8 @@ def test_main_program():
             return False
         
         # 测试XiangqiAnalyzerService类
-        exec(open("main.py").read().split("if __name__ == '__main__':")[0])
+        with open("main.py", 'r', encoding='utf-8') as f:
+            exec(f.read().split("if __name__ == '__main__':")[0])
         
         # 检查必要的类
         if 'XiangqiAnalyzerService' in locals():
