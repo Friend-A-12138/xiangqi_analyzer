@@ -21,6 +21,7 @@ DEFAULT_CONFIG = {
     'classifier_model_path': 'onnx/layout_recognition/nano_v3-0319.onnx',
     'source_type': 'file',
     'source_value': '',
+    'player_side': 'red',
     'think_time': 2000,
     'analysis_interval': 3,
     'max_users': 5,
@@ -35,6 +36,9 @@ DEFAULT_CONFIG = {
 # 支持的信号源类型与内网穿透类型
 SOURCE_TYPES = ('file', 'stream', 'emulator', 'screen')
 TUNNEL_TYPES = ('ngrok', 'frp')
+
+# 我方执子：red 红方走子 / black 黑方走子 / auto 自动判断
+PLAYER_SIDES = ('red', 'black', 'auto')
 
 # 参数取值范围（与 Web 设置页滑块保持一致）
 THINK_TIME_RANGE = (500, 10000)
@@ -159,6 +163,11 @@ def normalize_config(config: Dict[str, Any]) -> Dict[str, Any]:
     if result['tunnel_type'] not in TUNNEL_TYPES:
         logger.warning(f"不支持的内网穿透类型: {result['tunnel_type']}，回退为 ngrok")
         result['tunnel_type'] = 'ngrok'
+
+    # 我方执子
+    if result['player_side'] not in PLAYER_SIDES:
+        logger.warning(f"不支持的我方执子: {result['player_side']}，回退为 red")
+        result['player_side'] = 'red'
 
     # 数值参数
     result['think_time'] = _clamp_int(

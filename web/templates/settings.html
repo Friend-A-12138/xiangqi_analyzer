@@ -89,6 +89,17 @@
                     <div class="mb-4">
                         <h6 class="text-primary"><i class="bi bi-sliders"></i> 分析参数</h6>
                         <div class="mb-3">
+                            <label for="player-side" class="form-label">我方执子</label>
+                            <select class="form-select" id="player-side">
+                                <option value="red" {% if config.player_side == 'red' %}selected{% endif %}>我执红（红方走子）</option>
+                                <option value="black" {% if config.player_side == 'black' %}selected{% endif %}>我执黑（黑方走子）</option>
+                                <option value="auto" {% if config.player_side == 'auto' %}selected{% endif %}>自动判断</option>
+                            </select>
+                            <div class="form-text">
+                                告诉引擎该谁走子；自动判断会按红帅位置推断
+                            </div>
+                        </div>
+                        <div class="mb-3">
                             <label for="think-time" class="form-label">
                                 引擎思考时间: <span id="think-time-value">{{ config.think_time }}</span>ms
                             </label>
@@ -286,6 +297,7 @@ function saveSettings(event) {
         classifier_model_path: document.getElementById('classifier-model-path').value,
         source_type: sourceType,
         source_value: sourceValue,
+        player_side: document.getElementById('player-side').value,
         think_time: parseInt(document.getElementById('think-time').value),
         analysis_interval: parseInt(document.getElementById('analysis-interval').value)
     };

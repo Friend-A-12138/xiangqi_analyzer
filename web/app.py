@@ -160,7 +160,8 @@ def get_analyzer():
         analyzer = XiangqiAnalyzer(
             engine_path=engine_path,
             pose_model_path=analysis_config.get('pose_model_path', ''),
-            classifier_model_path=analysis_config.get('classifier_model_path', '')
+            classifier_model_path=analysis_config.get('classifier_model_path', ''),
+            player_side=analysis_config.get('player_side', 'red')
         )
         logger.info("✅ 分析器已按需初始化")
         return analyzer, None
