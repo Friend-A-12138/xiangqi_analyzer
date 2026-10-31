@@ -568,16 +568,15 @@ class XiangqiAnalyzer:
         """将10x9的PGN布局转换为FEN格式字符串
         
         朝向按红帅位置自动判断：检测器输出通常红方在下方；若红帅出现在前两行，
-        说明视角相反，此时旋转180度并交换红黑，保证 FEN 中红方在下方。
+        说明视角相反，此时旋转180度（红黑身份不变）后生成 FEN。
         被遮挡的 'x' 单元格无法识别，按空位处理（引擎不接受 'x'）。
         """
         red_at_bottom = any('K' in row for row in layout_pgn[-2:])
         
         layout = layout_pgn
         if not red_at_bottom:
-            logger.info("检测到红帅在上方，按180度旋转并交换红黑后生成FEN")
-            layout = [[cell.swapcase() if cell.isalpha() else cell for cell in row][::-1]
-                      for row in layout_pgn[::-1]]
+            logger.info("检测到红帅在上方，按180度旋转后生成FEN")
+            layout = [row[::-1] for row in layout_pgn[::-1]]
         
         occluded = sum(row.count('x') for row in layout)
         if occluded:
