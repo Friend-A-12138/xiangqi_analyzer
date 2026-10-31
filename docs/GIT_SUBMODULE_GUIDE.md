@@ -1,5 +1,8 @@
 # Git子模块使用指南
 
+> 说明：本文中的 `third_party/chess_detector` 只是通用示例。本项目实际使用的两个子模块是
+> `Chinese_Chess_Recognition/`（棋盘检测器）与 `Pikafish/`（引擎），命令中的路径请按实际替换。
+
 ## 📋 概述
 
 本项目使用Git子模块来引用第三方的棋盘检测器代码。这样做的好处是：

@@ -131,25 +131,25 @@ ImportError: cannot import name 'ChessboardDetector'
 
 **解决方法:**
 
-1. **检查第三方代码仓**
+1. **检查检测器子模块**
    ```bash
    # 确保子模块已初始化
-   git submodule init
-   git submodule update
+   git submodule update --init --recursive
    
    # 检查目录是否存在
-   ls -la third_party/chess_detector/
+   ls -la Chinese_Chess_Recognition/core/
    ```
 
 2. **检查导入路径**
    ```python
-   # 正确的导入方式
-   from third_party.chess_detector.core.chessboard_detector import ChessboardDetector
+   # 正确的导入方式（项目已在 src/chess_analyzer.py 中处理）
+   from core.chessboard_detector import ChessboardDetector
    ```
 
-3. **添加子模块（如果还没有）**
+3. **确认子模块地址**
    ```bash
-   git submodule add https://github.com/original-author/chess-detector.git third_party/chess_detector
+   # 子模块地址定义在 .gitmodules
+   cat .gitmodules
    ```
 
 #### 问题2.2: 模型文件不存在
@@ -167,22 +167,18 @@ FileNotFoundError: 找不到模型文件: onnx/pose/4_v6-0301.onnx
    ls -la onnx/layout_recognition/
    ```
 
-2. **从第三方仓库获取模型**
+2. **从子模块获取模型**
    ```bash
-   # 确保子模块已更新
-   cd third_party/chess_detector
-   git pull origin main
-   cd ../..
-   
-   # 复制模型文件（如果需要）
-   cp third_party/chess_detector/onnx/* onnx/
+   # 子模块中同样带有模型，可复制到项目 onnx/ 目录
+   cp Chinese_Chess_Recognition/onnx/pose/4_v6-0301.onnx onnx/pose/
+   cp Chinese_Chess_Recognition/onnx/layout_recognition/nano_v3-0319.onnx onnx/layout_recognition/
    ```
 
 3. **修改模型路径配置**
    ```json
    {
-     "pose_model_path": "third_party/chess_detector/onnx/pose/4_v6-0301.onnx",
-     "classifier_model_path": "third_party/chess_detector/onnx/layout_recognition/nano_v3-0319.onnx"
+     "pose_model_path": "Chinese_Chess_Recognition/onnx/pose/4_v6-0301.onnx",
+     "classifier_model_path": "Chinese_Chess_Recognition/onnx/layout_recognition/nano_v3-0319.onnx"
    }
    ```
 
@@ -530,7 +526,7 @@ python -m memory_profiler main.py
 
 2. **运行测试**
    ```bash
-   python tests/test_system.py
+   python test_system.py
    python tests/test_pikafish.py /path/to/pikafish
    python tests/test_debug.py
    ```

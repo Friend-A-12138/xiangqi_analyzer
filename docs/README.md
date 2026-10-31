@@ -345,7 +345,7 @@ xiangqi_analyzer/
 ├── test_system.py          # 系统测试脚本
 ├── start.bat               # Windows启动脚本
 ├── start.sh                # Linux/macOS启动脚本
-├── docs_all/               # 文档目录
+├── docs/                   # 文档目录
 │   ├── README.md           # 本文件
 │   ├── QUICK_START.md      # 快速启动
 │   ├── USER_GUIDE.md       # 使用指南

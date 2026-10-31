@@ -9,7 +9,7 @@
 
 #### 核心模块 (core/)
 - `core/__init__.py` - 核心模块初始化
-- `core/chess_analyzer.py` - 象棋分析器（整合了你的原始代码）
+- `src/chess_analyzer.py` - 象棋分析器（整合了你的原始代码）
 - `core/stream_processor.py` - 流处理器（RTMP/模拟器/屏幕截图）
 - `core/tunnel_service.py` - 内网穿透服务（ngrok/frp）
 

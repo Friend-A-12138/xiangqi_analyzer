@@ -6,10 +6,12 @@
 
 - 🎯 **智能棋盘检测**: 自动识别中国象棋棋盘和棋子位置
 - 🤖 **AI走法推荐**: 集成Pikafish引擎，提供专业的走法建议
-- 📹 **多源输入**: 支持图片、RTMP流、模拟器截图等多种输入方式
+- 📹 **多源输入**: 支持图片、RTMP流、模拟器截图、屏幕截图
+- 🖼️ **批量分析**: 一次上传多张棋谱图片，逐张输出FEN与推荐走法
 - 🌐 **Web界面**: 提供友好的Web界面，实时显示分析结果
-- 🔓 **内网穿透**: 支持ngrok/frp内网穿透，方便远程访问
-- 👥 **用户管理**: 支持多用户访问，可限制用户数量
+- 🔓 **内网穿透**: 支持ngrok/frp内网穿透，可在设置页直接配置与启停
+- 👥 **用户管理**: 支持多用户访问，可配置数量上限并在页面上增删用户
+- ♟️ **我方执子**: 可指定红方/黑方走子，避免引擎按错误的一方分析
 
 ## 🚀 快速开始
 
@@ -40,9 +42,18 @@ chmod +x /path/to/pikafish
 
 #### 准备检测模型
 
-确保以下模型文件存在：
+模型文件已随仓库提供（也可放在 `Chinese_Chess_Recognition` 子模块内）：
+
 - 姿态检测模型: `onnx/pose/4_v6-0301.onnx`
 - 棋子分类模型: `onnx/layout_recognition/nano_v3-0319.onnx`
+
+#### 初始化子模块
+
+检测代码通过子模块引入，首次使用需拉取：
+
+```bash
+git submodule update --init --recursive
+```
 
 ### 2. 启动服务
 
@@ -89,41 +100,56 @@ python main.py --enable-tunnel --tunnel-token YOUR_NGROK_TOKEN
 1. 启动服务: `python main.py`
 2. 打开浏览器: http://localhost:5000
 3. 登录: admin/admin123
-4. 上传图片
-5. 查看分析结果
+4. 在“上传图片分析”中选择图片并点击“分析图片”（无需先点“开始分析”）
+5. 查看FEN、棋盘布局与推荐走法
 
-### 场景2: 实时分析模拟器（推荐）
+### 场景2: 批量分析棋谱图片
+
+1. 登录后进入首页
+2. 在“棋谱批量分析”中选择多张图片（一次最多10张）
+3. 点击“批量分析”，表格中逐张显示FEN、推荐走法与评估
+
+### 场景3: 实时分析模拟器（推荐）
 
 1. 启动MuMu模拟器，打开JJ象棋
 2. 启动分析器服务
 3. 访问Web界面并登录
 4. 进入设置，配置:
    - 信号源类型: "模拟器"
-   - 模拟器名称: "MuMu"
+   - 模拟器名称或窗口标题: "MuMu"（可点“刷新窗口”从系统窗口中选择）
+   - 我方执子: 我执红 / 我执黑
    - 引擎路径: 你的pikafish.exe路径
 5. 保存设置
 6. 返回主页，点击"开始分析"
 7. 查看实时分析结果
 
+### 场景4: 通过内网穿透远程访问
+
+1. 在设置页填写 ngrok AuthToken（或 frp 服务器信息）
+2. 点击“保存配置”，再点击“启动穿透”
+3. 页面显示公网URL后即可远程访问；停止时点击“停止”
+
 ## 📚 完整文档
 
 ### 📖 使用指南
-- [快速启动指南](docs_all/QUICK_START.md) - 5分钟快速上手
-- [使用指南](docs_all/USER_GUIDE.md) - 详细使用说明
-- [故障排除指南](docs_all/TROUBLESHOOTING.md) - 常见问题解决
+- [快速启动指南](docs/QUICK_START.md) - 5分钟快速上手
+- [使用指南](docs/USER_GUIDE.md) - 详细使用说明
+- [故障排除指南](docs/TROUBLESHOOTING.md) - 常见问题解决
 
 ### 🏗️ 项目架构
-- [项目结构](docs_all/PROJECT_STRUCTURE.md) - 代码组织结构
-- [项目总览](docs_all/PROJECT_OVERVIEW.md) - 系统架构说明
-- [实现总结](docs_all/IMPLEMENTATION_SUMMARY.md) - 实现细节
+- [项目结构](docs/PROJECT_STRUCTURE.md) - 代码组织结构
+- [项目总览](docs/PROJECT_OVERVIEW.md) - 系统架构说明
+- [实现总结](docs/IMPLEMENTATION_SUMMARY.md) - 实现细节
 
 ### 🔧 开发指南
-- [Git子模块指南](docs_all/GIT_SUBMODULE_GUIDE.md) - 第三方代码管理
-- [交付文档](docs_all/DELIVERY.md) - 项目交付清单
+- [Git子模块指南](docs/GIT_SUBMODULE_GUIDE.md) - 第三方代码管理
+- [交付文档](docs/DELIVERY.md) - 项目交付清单
 
 ### 🧪 测试调试
-- [测试脚本](tests/test_pikafish.py) - 测试Pikafish引擎
+- [系统测试](test_system.py) - 模块导入/目录/路由等完整性检查
+- [Pikafish测试](tests/test_pikafish.py) - 测试Pikafish引擎与权限
 - [调试脚本](tests/test_debug.py) - 通用调试工具
+- `pytest tests` - 运行 pytest 用例（配置、用户、序列化、批量接口等）
 
 ## ⚙️ 配置说明
 
@@ -136,8 +162,10 @@ python main.py --enable-tunnel --tunnel-token YOUR_NGROK_TOKEN
   "classifier_model_path": "onnx/layout_recognition/nano_v3-0319.onnx",
   "source_type": "emulator",
   "source_value": "MuMu",
+  "player_side": "red",
   "think_time": 2000,
   "analysis_interval": 3,
+  "max_users": 5,
   "enable_tunnel": false,
   "tunnel_type": "ngrok",
   "tunnel_config": {
@@ -146,6 +174,12 @@ python main.py --enable-tunnel --tunnel-token YOUR_NGROK_TOKEN
   }
 }
 ```
+
+- `player_side`：我方执子，`red` 红方走子 / `black` 黑方走子 / `auto` 按红帅位置推断
+- `max_users`：账号数量与在线人数上限（1-20）
+- `source_value`：`stream` 为流地址、`emulator` 为模拟器名称或窗口标题、`screen` 为 `x,y,width,height`
+
+完整示例见 [config/config.example.json](config/config.example.json)。配置文件由 Web 设置页读写，修改后重启仍生效。
 
 ### 命令行参数
 
@@ -194,7 +228,7 @@ chmod +x /path/to/pikafish
 2. 检查端口是否被占用
 3. 查看日志获取详细信息
 
-**更多问题请参考:** [故障排除指南](docs_all/TROUBLESHOOTING.md)
+**更多问题请参考:** [故障排除指南](docs/TROUBLESHOOTING.md)
 
 ## 📦 项目结构
 
@@ -204,22 +238,26 @@ xiangqi_analyzer/
 ├── requirements.txt        # Python依赖
 ├── start.bat               # Windows启动脚本
 ├── start.sh                # Linux/macOS启动脚本
-├── docs_all/               # 项目文档
-│   ├── README.md           # 本文件
+├── docs/                   # 项目文档
 │   ├── QUICK_START.md      # 快速启动
 │   ├── USER_GUIDE.md       # 使用指南
 │   ├── TROUBLESHOOTING.md  # 故障排除
 │   ├── PROJECT_STRUCTURE.md # 项目结构
 │   └── ...
 ├── src/                    # 项目源代码
-│   ├── chess_analyzer.py   # 象棋分析器
-│   ├── stream_processor.py # 流处理器
-│   ├── tunnel_service.py   # 内网穿透服务
-│   └── web/                # Web界面
-├── third_party/            # 第三方代码（Git子模块）
-│   └── chess_detector/     # 棋盘检测器
-├── config/                 # 配置文件
-├── tests/                  # 测试文件
+│   ├── config.py           # 配置管理（默认值/读写/校验）
+│   ├── chess_analyzer.py   # 象棋分析器（检测器+Pikafish封装）
+│   ├── chess_validator.py  # 棋盘颜色校验
+│   ├── stream_processor.py # 流/屏幕/模拟器截图
+│   └── tunnel_service.py   # 内网穿透服务（ngrok/frp）
+├── web/                    # Web界面
+│   ├── app.py              # Flask应用与接口
+│   └── templates/          # 页面模板
+├── onnx/                   # 检测模型
+├── Chinese_Chess_Recognition/  # 检测器代码（Git子模块）
+├── Pikafish/               # 引擎源码（Git子模块）
+├── config/                 # 配置文件（含示例）
+├── tests/                  # 测试与调试脚本
 └── logs/                   # 日志文件
 ```
 
@@ -250,13 +288,17 @@ xiangqi_analyzer/
 ### 运行测试
 
 ```bash
+# 系统完整性测试（模块导入/目录/路由）
+python test_system.py
+
+# pytest 用例（配置/用户/序列化/批量接口）
+pytest tests -q
+
 # 测试Pikafish引擎
 python tests/test_pikafish.py /path/to/pikafish
 
-# 运行完整系统测试
+# 通用调试工具
 python tests/test_debug.py
-
-# 交互式调试
 python tests/test_debug.py --interactive
 ```
 
@@ -291,8 +333,8 @@ grep ERROR logs/xiangqi_analyzer.log
 4. 创建Pull Request
 
 ### 第三方代码
-- 第三方代码位于 `third_party/` 目录
-- 使用Git子模块管理
+- 第三方代码位于 `Chinese_Chess_Recognition/` 与 `Pikafish/` 目录
+- 使用Git子模块管理，首次使用执行 `git submodule update --init --recursive`
 - 不要直接修改第三方代码
 - 如需修改，请到原仓库提交PR
 

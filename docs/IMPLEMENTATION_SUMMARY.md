@@ -4,7 +4,7 @@
 
 ### 1. 核心模块
 
-#### 象棋分析器 (core/chess_analyzer.py)
+#### 象棋分析器 (src/chess_analyzer.py)
 - ✅ 整合了你的原始代码逻辑
 - ✅ 实现了Pikafish引擎封装
 - ✅ 支持棋盘检测和棋子识别
