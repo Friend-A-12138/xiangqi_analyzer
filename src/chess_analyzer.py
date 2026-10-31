@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 import subprocess
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Tuple, List, Optional, Dict
@@ -25,6 +26,22 @@ core_package_path = project_root / "Chinese_Chess_Recognition"
 # 将 Chinese_Chess_Recognition 添加到 sys.path，使其内部的绝对导入能工作
 if str(core_package_path) not in sys.path:
     sys.path.insert(0, str(core_package_path))
+
+
+def parse_time_info(time_info) -> float:
+    """把检测器返回的耗时描述解析为秒数
+
+    Args:
+        time_info: 检测器返回的耗时，可能是数字或"推理用时: 0.45s"这类字符串
+
+    Returns:
+        float: 耗时秒数，无法解析时返回 0.0
+    """
+    if isinstance(time_info, (int, float)):
+        return float(time_info)
+
+    match = re.search(r'(\d+(?:\.\d+)?)', str(time_info or ''))
+    return float(match.group(1)) if match else 0.0
 
 # 现在可以安全导入
 try:
@@ -157,7 +174,8 @@ class PikafishEngine:
 
         raise TimeoutError(f"引擎响应超时（{max_time}秒）")
 
-    def get_best_move(self, fen: str, think_time: int = 8000, depth: int = None) -> dict:
+    def get_best_move(self, fen: str, think_time: int = 8000, depth: int = None,
+                      side_to_move: str = None) -> dict:
         """
         获取最佳走法，增加健壮性处理
 
@@ -165,6 +183,7 @@ class PikafishEngine:
             fen: FEN格式棋盘字符串（不含轮到哪方，需要手动添加）
             think_time: 思考时间（毫秒）
             depth: 搜索深度（可选，如果设置则覆盖think_time）
+            side_to_move: 走子方 ('w'红 / 'b'黑)，为 None 时自动推断
 
         Returns:
             dict: 包含best_move, score, pv等信息
@@ -184,14 +203,9 @@ class PikafishEngine:
             self._send_command("isready")
             self._wait_for_response("readyok")
 
-            # 自动判断执棋颜色
-            rows = fen.split('/')
-            my_color_is_red = any('K' in row for row in rows[:5])
-            if my_color_is_red:
-                logger.info("用户执红棋")
-            else:
-                logger.info("用户执黑棋")
-            engine_turn = 'w' if my_color_is_red else 'b'
+            engine_turn = side_to_move if side_to_move in ('w', 'b') \
+                else self._infer_side_to_move(fen)
+            logger.info(f"引擎按{'红' if engine_turn == 'w' else '黑'}方走子分析")
 
             full_fen = f"{fen} {engine_turn} - - 0 1"
             self._send_command(f"position fen {full_fen}")
@@ -271,6 +285,21 @@ class PikafishEngine:
                 "error": str(e)
             }
 
+    def _infer_side_to_move(self, fen: str) -> str:
+        """在调用方未指定走子方时，按红帅位置推断
+
+        Args:
+            fen: FEN 棋盘字符串
+
+        Returns:
+            str: 'w' 或 'b'
+        """
+        rows = fen.split('/')
+        red_at_top = any('K' in row for row in rows[:5])
+        logger.warning("未指定走子方，按红帅位置推断为"
+                       f"{'黑' if red_at_top else '红'}方走子")
+        return 'b' if red_at_top else 'w'
+
     def quit(self):
         """安全关闭引擎"""
         if self.process and self.process.poll() is None:
@@ -305,7 +334,8 @@ class ChessboardDetector:
 
             # 初始化校验器
             self.validator = ChessboardValidator()
-            self.enable_red_flip = True  # 翻转开关
+            # 颜色启发式修正误判较多，默认关闭，仅保留开关供调试
+            self.enable_red_flip = False
 
             logger.info("✅ 棋盘检测器初始化完成")
             
@@ -314,28 +344,36 @@ class ChessboardDetector:
             logger.warning("使用模拟检测器（仅用于链路验证，识别结果不可信）")
             self.detector = None
             self.validator = None
-            self.enable_red_flip = True
+            self.enable_red_flip = False
 
     def detect(self, image: np.ndarray) -> Optional[Dict]:
         """
         检测棋盘
-        
+
         Args:
-            image: 输入图像
-            
+            image: 输入图像，BGR 格式（与 OpenCV 读取、截图保持一致）
+
         Returns:
-            检测结果字典
+            检测结果字典，其中的图像字段同样是 BGR 格式
         """
         if self.detector is None:
             # 返回模拟数据用于测试
             return self._generate_mock_result(image)
         
         try:
-            result = self.detector.pred_detect_board_and_classifier(image)
-            if result is None:
+            # 原始检测器按 RGB 训练，这里统一转换，否则红黑棋子颜色会颠倒
+            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+            result = self.detector.pred_detect_board_and_classifier(image_rgb)
+            if not result or result[0] is None:
+                logger.warning("检测器未返回有效结果，可能图片中没有完整棋盘")
                 return None
-                
+
             original_with_keypoints, transformed_board, cell_labels_str, scores, time_info = result
+
+            # 检测器输出为 RGB，转回 BGR 供颜色校验和前端显示
+            original_bgr = cv2.cvtColor(original_with_keypoints, cv2.COLOR_RGB2BGR)
+            transformed_bgr = cv2.cvtColor(transformed_board, cv2.COLOR_RGB2BGR)
 
             # 1. 解析为二维完整名称
             layout_2d_short = [list(row) for row in cell_labels_str.strip().split('\n')]
@@ -344,7 +382,7 @@ class ChessboardDetector:
 
             # 2. 调用校验器（只检测，不修改）
             validation_report = self.validator.validate_per_cell_red(
-                transformed_board, layout_2d_full, scores
+                transformed_bgr, layout_2d_full, scores
             )
 
             # 3. 如果开关打开，执行硬翻转
@@ -372,11 +410,13 @@ class ChessboardDetector:
                 scores = corrected_scores
 
             return {
-                'original_with_keypoints': original_with_keypoints,
-                'transformed_board': transformed_board,
+                'original_with_keypoints': original_bgr,
+                'transformed_board': transformed_bgr,
                 'cell_labels_str': cell_labels_str,
                 'scores': scores,
-                'time_info': time_info,
+                'detect_time': parse_time_info(time_info),
+                'time_info': str(time_info),
+                'occluded_count': cell_labels_str.count('x'),
                 'validation_report': validation_report if self.validator else None
             }
             
@@ -412,7 +452,10 @@ class ChessboardDetector:
             'transformed_board': image,
             'cell_labels_str': cell_labels_str,
             'scores': scores,
-            'time_info': time_info
+            'detect_time': time_info,
+            'time_info': str(time_info),
+            'occluded_count': 0,
+            'validation_report': None
         }
 
 
@@ -420,7 +463,7 @@ class XiangqiAnalyzer:
     """中国象棋分析器主类"""
     
     def __init__(self, engine_path: str, pose_model_path: str, classifier_model_path: str, 
-                 detector_inverted: bool = True):
+                 detector_inverted: bool = None, player_side: str = None):
         """
         初始化分析器
         
@@ -428,10 +471,12 @@ class XiangqiAnalyzer:
             engine_path: Pikafish引擎路径
             pose_model_path: 姿态检测模型路径
             classifier_model_path: 棋子分类模型路径
-            detector_inverted: 检测器是否反转
+            detector_inverted: 已废弃，仅保留兼容；棋盘朝向改为按红帅位置自动判断
+            player_side: 我方执子 (red/black/auto)，为 None 时按红方处理
         """
         self.engine_path = engine_path
         self.detector_inverted = detector_inverted
+        self.player_side = player_side if player_side in ('red', 'black', 'auto') else 'red'
         
         # 初始化检测器
         self.detector = ChessboardDetector(pose_model_path, classifier_model_path)
@@ -475,7 +520,8 @@ class XiangqiAnalyzer:
             self._ensure_engine_started()
             logger.info(f"🤖 引擎分析中（{think_time}ms）...")
             
-            analysis = self.engine.get_best_move(fen, think_time=think_time)
+            analysis = self.engine.get_best_move(
+                fen, think_time=think_time, side_to_move=self._side_to_move())
             
             if analysis.get("error"):
                 logger.error(f"引擎分析失败: {analysis['error']}")
@@ -488,7 +534,10 @@ class XiangqiAnalyzer:
                 'layout_pgn': layout_pgn,
                 'layout_2d': [[CATEGORY_MAP_REVERSE.get(cell, cell) for cell in row] for row in layout_pgn],
                 'scores': detect_result['scores'],
-                'detect_time': detect_result['time_info'],
+                'detect_time': detect_result.get('detect_time', 0.0),
+                'time_info': detect_result.get('time_info', ''),
+                'occluded_count': detect_result.get('occluded_count', 0),
+                'player_side': self.player_side,
                 'best_move': analysis['best_move'],
                 'score': analysis['score'],
                 'original_with_keypoints': detect_result['original_with_keypoints'],
@@ -503,26 +552,44 @@ class XiangqiAnalyzer:
             logger.error(f"分析失败: {e}")
             return None
     
+    def _side_to_move(self) -> Optional[str]:
+        """根据我方执子返回 FEN 中的走子方
+        
+        Returns:
+            str: 'w' 表示红方走，'b' 表示黑方走，None 表示交给引擎按局面推断
+        """
+        if self.player_side == 'red':
+            return 'w'
+        if self.player_side == 'black':
+            return 'b'
+        return None
+    
     def _board_layout_to_fen(self, layout_pgn: List[List[str]]) -> str:
-        """将10x9的PGN布局转换为FEN格式字符串"""
+        """将10x9的PGN布局转换为FEN格式字符串
         
-        # 如果检测器是反的，先翻转棋子颜色
-        if self.detector_inverted:
-            layout_pgn = [
-                [cell.swapcase() if cell.isalpha() else cell for cell in row]
-                for row in layout_pgn
-            ]
+        朝向按红帅位置自动判断：检测器输出通常红方在下方；若红帅出现在前两行，
+        说明视角相反，此时旋转180度并交换红黑，保证 FEN 中红方在下方。
+        被遮挡的 'x' 单元格无法识别，按空位处理（引擎不接受 'x'）。
+        """
+        red_at_bottom = any('K' in row for row in layout_pgn[-2:])
         
-        # 反转行序（因为检测器返回的是从下往上）
-        reversed_layout = layout_pgn[::-1]
+        layout = layout_pgn
+        if not red_at_bottom:
+            logger.info("检测到红帅在上方，按180度旋转并交换红黑后生成FEN")
+            layout = [[cell.swapcase() if cell.isalpha() else cell for cell in row][::-1]
+                      for row in layout_pgn[::-1]]
+        
+        occluded = sum(row.count('x') for row in layout)
+        if occluded:
+            logger.warning(f"有{occluded}个位置被遮挡（x），FEN中按空位处理")
         
         # 生成标准FEN
         fen_rows = []
-        for row in reversed_layout:
+        for row in layout:
             empty_count = 0
             fen_row = ""
             for cell in row:
-                if cell == '.':
+                if cell in ('.', 'x'):
                     empty_count += 1
                 else:
                     if empty_count > 0:
