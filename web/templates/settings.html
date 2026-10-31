@@ -191,6 +191,81 @@
         </div>
     </div>
 </div>
+
+<!-- 内网穿透 -->
+<div class="row mt-4">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-broadcast"></i> 内网穿透</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="tunnel-type" class="form-label">穿透方式</label>
+                    <select class="form-select" id="tunnel-type" onchange="toggleTunnelConfig()">
+                        <option value="ngrok" {% if config.tunnel_type == 'ngrok' %}selected{% endif %}>ngrok（需要官方客户端与令牌）</option>
+                        <option value="frp" {% if config.tunnel_type == 'frp' %}selected{% endif %}>frp（需要自建服务器）</option>
+                    </select>
+                </div>
+                
+                <div id="ngrok-config">
+                    <div class="mb-3">
+                        <label for="tunnel-auth-token" class="form-label">ngrok AuthToken</label>
+                        <input type="text" class="form-control" id="tunnel-auth-token"
+                               value="{{ config.tunnel_config.auth_token }}" placeholder="登录ngrok后在控制台获取">
+                    </div>
+                    <div class="mb-3">
+                        <label for="tunnel-region" class="form-label">节点区域</label>
+                        <select class="form-select" id="tunnel-region">
+                            <option value="ap" {% if config.tunnel_config.region == 'ap' %}selected{% endif %}>亚太 (ap)</option>
+                            <option value="us" {% if config.tunnel_config.region == 'us' %}selected{% endif %}>美国 (us)</option>
+                            <option value="eu" {% if config.tunnel_config.region == 'eu' %}selected{% endif %}>欧洲 (eu)</option>
+                            <option value="jp" {% if config.tunnel_config.region == 'jp' %}selected{% endif %}>日本 (jp)</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div id="frp-config" style="display: none;">
+                    <div class="mb-3">
+                        <label for="tunnel-server-addr" class="form-label">服务器地址</label>
+                        <input type="text" class="form-control" id="tunnel-server-addr"
+                               value="{{ config.tunnel_config.server_addr or '' }}" placeholder="your-server.com">
+                    </div>
+                    <div class="mb-3">
+                        <label for="tunnel-server-port" class="form-label">服务器端口</label>
+                        <input type="number" class="form-control" id="tunnel-server-port"
+                               value="{{ config.tunnel_config.server_port or 7000 }}">
+                    </div>
+                    <div class="mb-3">
+                        <label for="tunnel-token" class="form-label">认证令牌</label>
+                        <input type="text" class="form-control" id="tunnel-token"
+                               value="{{ config.tunnel_config.token or '' }}">
+                    </div>
+                    <div class="mb-3">
+                        <label for="tunnel-subdomain" class="form-label">子域名</label>
+                        <input type="text" class="form-control" id="tunnel-subdomain"
+                               value="{{ config.tunnel_config.subdomain or '' }}" placeholder="chess">
+                    </div>
+                </div>
+                
+                <p class="small text-muted">
+                    当前状态: <span id="tunnel-status">未运行</span>
+                    <span id="tunnel-url" class="ms-2"></span>
+                </p>
+                
+                <button class="btn btn-sm btn-outline-primary" onclick="saveTunnelConfig()">
+                    <i class="bi bi-save"></i> 保存配置
+                </button>
+                <button class="btn btn-sm btn-success" onclick="startTunnel()">
+                    <i class="bi bi-play-fill"></i> 启动穿透
+                </button>
+                <button class="btn btn-sm btn-outline-danger" onclick="stopTunnel()">
+                    <i class="bi bi-stop-fill"></i> 停止
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -225,7 +300,109 @@ document.addEventListener('DOMContentLoaded', function() {
     // 更新在线用户数
     updateActiveUsers();
     loadUsers();
+    
+    // 内网穿透状态
+    toggleTunnelConfig();
+    loadTunnelStatus();
 });
+
+// 切换 ngrok / frp 配置区域
+function toggleTunnelConfig() {
+    const type = document.getElementById('tunnel-type').value;
+    document.getElementById('ngrok-config').style.display = type === 'ngrok' ? 'block' : 'none';
+    document.getElementById('frp-config').style.display = type === 'frp' ? 'block' : 'none';
+}
+
+// 收集隧道配置
+function collectTunnelConfig() {
+    const type = document.getElementById('tunnel-type').value;
+    
+    if (type === 'ngrok') {
+        return {
+            auth_token: document.getElementById('tunnel-auth-token').value,
+            region: document.getElementById('tunnel-region').value
+        };
+    }
+    
+    return {
+        server_addr: document.getElementById('tunnel-server-addr').value,
+        server_port: parseInt(document.getElementById('tunnel-server-port').value) || 7000,
+        token: document.getElementById('tunnel-token').value,
+        subdomain: document.getElementById('tunnel-subdomain').value
+    };
+}
+
+// 保存隧道配置
+function saveTunnelConfig() {
+    fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            tunnel_type: document.getElementById('tunnel-type').value,
+            tunnel_config: collectTunnelConfig()
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            alert('保存失败: ' + data.error);
+            return;
+        }
+        alert('隧道配置已保存');
+    })
+    .catch(error => alert('保存失败: ' + error.message));
+}
+
+// 启动内网穿透
+function startTunnel() {
+    fetch('/api/tunnel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            tunnel_type: document.getElementById('tunnel-type').value,
+            tunnel_config: collectTunnelConfig()
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            alert('启动失败: ' + data.error);
+            return;
+        }
+        loadTunnelStatus();
+    })
+    .catch(error => alert('启动失败: ' + error.message));
+}
+
+// 停止内网穿透
+function stopTunnel() {
+    fetch('/api/tunnel', { method: 'DELETE' })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('停止失败: ' + data.error);
+                return;
+            }
+            loadTunnelStatus();
+        })
+        .catch(error => alert('停止失败: ' + error.message));
+}
+
+// 刷新内网穿透状态
+function loadTunnelStatus() {
+    fetch('/api/tunnel')
+        .then(response => response.json())
+        .then(data => {
+            const status = data.status || {};
+            const running = status.running === true;
+            
+            document.getElementById('tunnel-status').textContent =
+                running ? '运行中' : '未运行';
+            document.getElementById('tunnel-url').textContent =
+                running && status.public_url ? status.public_url : '';
+        })
+        .catch(error => console.error('Error:', error));
+}
 
 // 刷新系统窗口列表（用于选择模拟器窗口）
 function refreshWindows() {

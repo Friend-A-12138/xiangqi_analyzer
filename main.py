@@ -63,8 +63,12 @@ class XiangqiAnalyzerService:
         """
         return save_config(self.config, config_file)
 
-    def start_tunnel(self) -> bool:
-        """启动内网穿透"""
+    def start_tunnel(self, port: int = 5000) -> bool:
+        """启动内网穿透
+
+        Args:
+            port: 要转发的本地端口
+        """
         try:
             if not self.config.get('enable_tunnel', False):
                 logger.info("内网穿透未启用")
@@ -90,7 +94,7 @@ class XiangqiAnalyzerService:
                 logger.error(f"不支持的内网穿透类型: {self.config['tunnel_type']}")
                 return False
 
-            if self.tunnel_manager.start(5000):
+            if self.tunnel_manager.start(port):
                 public_url = self.tunnel_manager.get_public_url()
                 logger.info(f"✅ 内网穿透已启动 - 公网URL: {public_url}")
                 return True
@@ -243,10 +247,11 @@ def main():
     
     # 启动内网穿透（如果启用）
     if service.config['enable_tunnel']:
-        service.start_tunnel()
+        service.start_tunnel(args.port)
     
     # 初始化应用，并把配置交给 Web 层统一管理
-    service.config = init_app(service.config, config_file_path=args.config)
+    service.config = init_app(service.config, config_file_path=args.config,
+                              port=args.port, tunnel=service.tunnel_manager)
     
     # 启动Web服务器
     logger.info(f"启动Web服务器: http://{args.host}:{args.port}")

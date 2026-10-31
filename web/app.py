@@ -30,6 +30,7 @@ from src.config import (check_config, default_config, load_config,
                         normalize_config, save_config)
 from src.stream_processor import (RTMPStreamProcessor, EmulatorCapture,
                                   create_screen_capture, parse_region)
+from src.tunnel_service import create_frp_tunnel, create_ngrok_tunnel
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -56,6 +57,10 @@ analysis_thread = None
 running = False
 latest_result = None
 analysis_config = default_config()
+
+# 内网穿透管理器与实际监听端口（用于 ngrok/frp 转发）
+tunnel_manager = None
+web_port = 5000
 
 # 当前使用的配置文件路径（由 main.py 传入，Web 保存设置时写回同一个文件）
 config_file = None
@@ -137,6 +142,27 @@ def serialize_result(result: dict, include_images: bool = False) -> dict:
             data[key] = encode_image(result.get(key))
 
     return data
+
+def apply_config_update(data: dict) -> dict:
+    """把接口提交的配置合并进当前配置并写回文件
+    
+    Args:
+        data: 需要覆盖的配置项（可只提交部分字段）
+        
+    Returns:
+        dict: 规范化后的完整配置
+    """
+    merged = {**analysis_config, **data}
+    
+    # tunnel_config 需要深合并，避免只提交部分字段时丢失其他配置
+    if isinstance(data.get('tunnel_config'), dict):
+        merged['tunnel_config'] = {**analysis_config.get('tunnel_config', {}),
+                                   **data['tunnel_config']}
+    
+    updated = normalize_config(merged)
+    analysis_config.update(updated)
+    save_config(analysis_config, config_file)
+    return analysis_config
 
 def get_analyzer():
     """获取分析器实例，未初始化时按当前配置创建
@@ -464,7 +490,12 @@ def get_status():
         'source_type': analysis_config['source_type'],
         'source_value': analysis_config['source_value'],
         'active_users': user_manager.get_active_user_count(),
-        'max_users': user_manager.max_users
+        'max_users': user_manager.max_users,
+        'tunnel': {
+            'enabled': analysis_config['enable_tunnel'],
+            'type': analysis_config['tunnel_type'],
+            'status': tunnel_manager.get_status() if tunnel_manager else {'running': False}
+        }
     })
 
 @app.route('/api/windows')
@@ -539,6 +570,70 @@ def delete_user(username):
     logger.info(f"已删除用户: {username}")
     return jsonify({'success': True, 'users': user_manager.list_users()})
 
+@app.route('/api/tunnel', methods=['GET', 'POST', 'DELETE'])
+def manage_tunnel():
+    """内网穿透：查询状态 / 启动 / 停止"""
+    global tunnel_manager
+    
+    session_id = session.get('session_id')
+    if not session_id or not user_manager.is_logged_in(session_id):
+        return jsonify({'error': '未登录'}), 401
+    
+    if request.method == 'GET':
+        return jsonify({
+            'enabled': analysis_config['enable_tunnel'],
+            'type': analysis_config['tunnel_type'],
+            'port': web_port,
+            'status': tunnel_manager.get_status() if tunnel_manager else {'running': False}
+        })
+    
+    if request.method == 'DELETE':
+        if tunnel_manager:
+            tunnel_manager.stop()
+            tunnel_manager = None
+        
+        analysis_config['enable_tunnel'] = False
+        save_config(analysis_config, config_file)
+        return jsonify({'success': True, 'status': {'running': False}})
+    
+    # POST：启动内网穿透（可同时提交最新配置）
+    if tunnel_manager and tunnel_manager.is_running():
+        return jsonify({'error': '内网穿透已在运行'}), 400
+    
+    data = request.get_json(silent=True) or {}
+    if data:
+        apply_config_update(data)
+    
+    tunnel_config = analysis_config.get('tunnel_config', {})
+    
+    if analysis_config['tunnel_type'] == 'ngrok':
+        manager = create_ngrok_tunnel(
+            auth_token=tunnel_config.get('auth_token'),
+            region=tunnel_config.get('region', 'ap'))
+    else:
+        if not tunnel_config.get('server_addr'):
+            return jsonify({'error': 'frp 模式需要先填写服务器地址'}), 400
+        manager = create_frp_tunnel(
+            server_addr=tunnel_config['server_addr'],
+            server_port=int(tunnel_config.get('server_port', 7000)),
+            token=tunnel_config.get('token'),
+            subdomain=tunnel_config.get('subdomain'))
+    
+    logger.info(f"正在启动内网穿透: {analysis_config['tunnel_type']} -> 端口 {web_port}")
+    
+    if not manager.start(web_port):
+        return jsonify({
+            'error': '内网穿透启动失败，请确认已安装 ngrok/frpc，并检查令牌或服务器配置'
+        }), 500
+    
+    tunnel_manager = manager
+    analysis_config['enable_tunnel'] = True
+    save_config(analysis_config, config_file)
+    
+    logger.info(f"✅ 内网穿透已启动: {manager.get_public_url()}")
+    return jsonify({'success': True, 'public_url': manager.get_public_url(),
+                    'status': manager.get_status()})
+
 @app.route('/api/config', methods=['POST'])
 def update_config():
     """更新配置"""
@@ -551,20 +646,14 @@ def update_config():
     try:
         data = request.get_json(silent=True) or {}
         
-        # 校验并合并配置（非法值会被规范化到合法范围）
-        updated = normalize_config({**analysis_config, **data})
+        # 校验、合并并写回配置文件
+        updated = apply_config_update(data)
         warnings = check_config(updated)
         for problem in warnings:
             logger.warning(f"配置检查: {problem}")
         
-        analysis_config.update(updated)
-        
         # 配置变化后丢弃旧分析器，下次分析时按新配置重建
         analyzer = None
-        
-        # 写回配置文件，保证重启后配置仍然生效
-        if not save_config(analysis_config, config_file):
-            return jsonify({'error': '配置保存失败，请检查配置文件权限'}), 500
         
         logger.info(f"配置已更新: {analysis_config}")
         return jsonify({'success': True, 'config': analysis_config, 'warnings': warnings})
@@ -782,20 +871,26 @@ def analysis_loop():
             time.sleep(1)
 
 # 初始化
-def init_app(config=None, config_file_path=None):
+def init_app(config=None, config_file_path=None, port: int = 5000, tunnel=None):
     """初始化应用
     
     Args:
         config: 由 main.py 传入的配置（已合并命令行参数），为空时读配置文件
         config_file_path: 配置文件路径，Web 保存设置时写回该文件
+        port: Web 服务监听端口，内网穿透转发到该端口
+        tunnel: main.py 启动的内网穿透管理器，用于与 Web 端共享状态
         
     Returns:
         dict: 初始化后的配置
     """
-    global analysis_config, config_file
+    global analysis_config, config_file, tunnel_manager, web_port
     
     config_file = config_file_path
     analysis_config = normalize_config(config) if config else load_config(config_file_path)
+    
+    web_port = int(port or 5000)
+    if tunnel is not None:
+        tunnel_manager = tunnel
     
     project_root = Path(__file__).parent.parent
     
