@@ -105,6 +105,27 @@
         </div>
     </div>
 </div>
+
+<!-- 棋谱批量分析 -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-images"></i> 棋谱批量分析</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <input type="file" class="form-control" id="batch-upload" accept="image/*" multiple>
+                    <div class="form-text">一次最多10张，逐张分析，单张失败不影响其他图片</div>
+                </div>
+                <button class="btn btn-primary" onclick="uploadBatch()">
+                    <i class="bi bi-search"></i> 批量分析
+                </button>
+                <div id="batch-result" class="mt-3"></div>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -322,6 +343,80 @@ function uploadImage() {
 function updateRecommendation(data) {
     const recommendationDiv = document.getElementById('recommendation');
     // 已经在updateAnalysisResult中更新了
+}
+
+// 批量分析
+function uploadBatch() {
+    const input = document.getElementById('batch-upload');
+    
+    if (!input.files || input.files.length === 0) {
+        alert('请选择图片');
+        return;
+    }
+    
+    const formData = new FormData();
+    Array.from(input.files).forEach(function(file) {
+        formData.append('images', file);
+    });
+    
+    const container = document.getElementById('batch-result');
+    container.innerHTML = '<div class="text-muted small">正在分析，请稍候...</div>';
+    
+    fetch('/api/upload_batch', { method: 'POST', body: formData })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                container.innerHTML = '<div class="alert alert-warning">' + data.error + '</div>';
+                return;
+            }
+            renderBatchResult(data);
+        })
+        .catch(error => {
+            container.innerHTML = '<div class="alert alert-danger">批量分析失败: ' +
+                                  error.message + '</div>';
+        });
+}
+
+// 渲染批量分析结果
+function renderBatchResult(data) {
+    let html = '<p class="small">共 ' + data.total + ' 张，成功 ' + data.success +
+               ' 张，失败 ' + data.failed + ' 张</p>';
+    
+    html += '<div class="table-responsive"><table class="table table-sm align-middle">';
+    html += '<thead><tr><th>文件名</th><th>FEN</th><th>推荐走法</th><th>评估</th><th>耗时</th></tr></thead><tbody>';
+    
+    data.results.forEach(function(item) {
+        html += '<tr>';
+        html += '<td class="small">' + item.filename + '</td>';
+        
+        if (item.success) {
+            html += '<td><code class="small">' + item.fen + '</code></td>';
+            html += '<td><strong>' + (item.best_move || '-') + '</strong></td>';
+            html += '<td>' + formatScore(item.score) + '</td>';
+            html += '<td class="small">' + item.detect_time.toFixed(2) + 's</td>';
+        } else {
+            html += '<td colspan="4" class="text-danger small">' +
+                    (item.error || '分析失败') + '</td>';
+        }
+        
+        html += '</tr>';
+    });
+    
+    html += '</tbody></table></div>';
+    document.getElementById('batch-result').innerHTML = html;
+}
+
+// 格式化引擎评分
+function formatScore(score) {
+    if (score === null || score === undefined || score === '') {
+        return '-';
+    }
+    
+    if (typeof score === 'string' && score.startsWith('MateIn')) {
+        return '将死(' + score.substring(6) + '步)';
+    }
+    
+    return parseFloat(score).toFixed(2);
 }
 </script>
 {% endblock %}

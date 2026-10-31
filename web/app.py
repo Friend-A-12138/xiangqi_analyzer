@@ -765,6 +765,81 @@ def upload_image():
         logger.error(f"上传图片分析失败: {e}")
         return jsonify({'error': str(e)}), 500
 
+# 批量分析一次最多处理的图片数量
+BATCH_MAX_FILES = 10
+
+@app.route('/api/upload_batch', methods=['POST'])
+def upload_images_batch():
+    """批量上传图片并逐张分析
+    
+    单张失败不会中断整批，结果按文件逐条返回。
+    """
+    session_id = session.get('session_id')
+    if not session_id or not user_manager.is_logged_in(session_id):
+        return jsonify({'error': '未登录'}), 401
+    
+    try:
+        files = request.files.getlist('images') or request.files.getlist('image')
+        files = [file for file in files if file and file.filename]
+        
+        if not files:
+            return jsonify({'error': '未选择图片'}), 400
+        
+        if len(files) > BATCH_MAX_FILES:
+            return jsonify({'error': f'一次最多分析{BATCH_MAX_FILES}张图片'}), 400
+        
+        current_analyzer, error = get_analyzer()
+        if error:
+            return jsonify({'error': error}), 400
+        
+        results = []
+        for file in files:
+            item = {'filename': file.filename, 'success': False}
+            
+            try:
+                image_data = file.read()
+                nparr = np.frombuffer(image_data, np.uint8)
+                image = cv2.imdecode(nparr, cv2.IMREAD_COLOR) if image_data else None
+                
+                if image is None:
+                    item['error'] = '无法读取图片'
+                else:
+                    result = current_analyzer.analyze_image(
+                        image, analysis_config['think_time'])
+                    
+                    if result:
+                        item.update({
+                            'success': True,
+                            'fen': result['fen'],
+                            'best_move': result['best_move'],
+                            'score': make_json_serializable(result['score']),
+                            'confidence': safe_float(result['confidence'], 0.0),
+                            'detect_time': safe_float(result['detect_time'], 0.0),
+                            'occluded_count': result.get('occluded_count', 0)
+                        })
+                    else:
+                        item['error'] = '分析失败（可能未识别到完整棋盘）'
+                
+            except Exception as e:
+                logger.error(f"批量分析 {file.filename} 失败: {e}")
+                item['error'] = str(e)
+            
+            results.append(item)
+        
+        success_count = sum(1 for item in results if item['success'])
+        logger.info(f"批量分析完成: {success_count}/{len(results)} 成功")
+        
+        return jsonify({
+            'total': len(results),
+            'success': success_count,
+            'failed': len(results) - success_count,
+            'results': results
+        })
+        
+    except Exception as e:
+        logger.error(f"批量上传分析失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
 # SocketIO事件
 @socketio.on('connect')
 def handle_connect():
