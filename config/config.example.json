@@ -13,6 +13,7 @@
     "Threads": 14,
     "Hash": 512
   },
+  "onnx_providers": ["CUDAExecutionProvider", "CPUExecutionProvider"],
   "enable_tunnel": false,
   "tunnel_type": "ngrok",
   "tunnel_config": {
