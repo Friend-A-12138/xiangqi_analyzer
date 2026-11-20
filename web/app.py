@@ -193,7 +193,8 @@ def get_analyzer():
             pose_model_path=analysis_config.get('pose_model_path', ''),
             classifier_model_path=analysis_config.get('classifier_model_path', ''),
             player_side=analysis_config.get('player_side', 'red'),
-            uci_options=analysis_config.get('uci_options')
+            uci_options=analysis_config.get('uci_options'),
+            onnx_providers=analysis_config.get('onnx_providers')
         )
         logger.info("✅ 分析器已按需初始化")
         return analyzer, None

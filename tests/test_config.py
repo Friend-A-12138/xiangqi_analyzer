@@ -122,3 +122,17 @@ def test_normalize_frame_diff_threshold():
     assert normalize_config({'frame_diff_threshold': '5.5'})['frame_diff_threshold'] == 5.5
     assert normalize_config({'frame_diff_threshold': -1})['frame_diff_threshold'] == 0.0
     assert normalize_config({'frame_diff_threshold': 'abc'})['frame_diff_threshold'] == 3.0
+
+
+def test_normalize_onnx_providers():
+    """provider 列表支持字符串、去重，非法值回退默认"""
+    defaults = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+
+    assert default_config()['onnx_providers'] == defaults
+    assert normalize_config({'onnx_providers': 'CPUExecutionProvider'})['onnx_providers'] == \
+        ['CPUExecutionProvider']
+    assert normalize_config({
+        'onnx_providers': ['CUDAExecutionProvider', 'CUDAExecutionProvider']
+    })['onnx_providers'] == ['CUDAExecutionProvider']
+    assert normalize_config({'onnx_providers': []})['onnx_providers'] == defaults
+    assert normalize_config({'onnx_providers': 5})['onnx_providers'] == defaults

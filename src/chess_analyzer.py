@@ -18,6 +18,7 @@ from .chess_validator import ChessboardValidator, CATEGORY_MAP, CATEGORY_MAP_REV
 from .board_view import build_board_view
 from .board_render import (board_cell_size, board_point, original_cell_size,
                            to_original)
+from .onnx_runtime import CPU_PROVIDER, configure_onnx_runtime
 from .xiangqi_notation import move_to_chinese, square_to_rowcol
 
 # 配置日志
@@ -329,28 +330,48 @@ class PikafishEngine:
 class ChessboardDetector:
     """棋盘检测器包装类"""
     
-    def __init__(self, pose_model_path: str, full_classifier_model_path: str):
+    def __init__(self, pose_model_path: str, full_classifier_model_path: str,
+                 onnx_providers=None):
         """
         初始化检测器
         
         Args:
             pose_model_path: 姿态检测模型路径
             full_classifier_model_path: 棋子分类模型路径
+            onnx_providers: ONNX Runtime provider 列表，默认 CUDA -> CPU
         """
+        self.provider_info = None
+
         try:
             if not CORE_AVAILABLE:
                 raise RuntimeError("无法初始化：Chinese_Chess_Recognition 模块不可用")
 
-            self.detector = OriginalDetector(
-                pose_model_path=pose_model_path,
-                full_classifier_model_path=full_classifier_model_path
-            )
+            # 子模块内部直接调用 onnxruntime.InferenceSession，这里统一注入 provider
+            self.provider_info = configure_onnx_runtime(onnx_providers)
+
+            try:
+                self.detector = OriginalDetector(
+                    pose_model_path=pose_model_path,
+                    full_classifier_model_path=full_classifier_model_path
+                )
+            except Exception as e:
+                effective = self.provider_info.get('effective') or []
+                if any(name != CPU_PROVIDER for name in effective):
+                    logger.warning(f"GPU 会话创建失败，回退到 CPU: {e}")
+                    self.provider_info = configure_onnx_runtime([CPU_PROVIDER])
+                    self.detector = OriginalDetector(
+                        pose_model_path=pose_model_path,
+                        full_classifier_model_path=full_classifier_model_path
+                    )
+                else:
+                    raise
 
             # 初始化校验器
             self.validator = ChessboardValidator()
             # 颜色启发式修正误判较多，默认关闭，仅保留开关供调试
             self.enable_red_flip = False
 
+            self._log_session_providers()
             logger.info("✅ 棋盘检测器初始化完成")
             
         except (ImportError, RuntimeError) as e:
@@ -359,6 +380,21 @@ class ChessboardDetector:
             self.detector = None
             self.validator = None
             self.enable_red_flip = False
+
+    def _log_session_providers(self):
+        """打印两个模型实际生效的 provider"""
+        sessions = {}
+
+        for name, module in (('pose', getattr(self.detector, 'pose', None)),
+                             ('classifier', getattr(self.detector, 'full_classifier', None))):
+            session = getattr(module, 'session', None)
+            if session is not None:
+                providers = session.get_providers()
+                sessions[name] = providers
+                logger.info(f"{name} 模型实际 provider: {providers}")
+
+        if sessions and self.provider_info is not None:
+            self.provider_info['sessions'] = sessions
 
     def detect(self, image: np.ndarray) -> Optional[Dict]:
         """
@@ -515,7 +551,8 @@ class XiangqiAnalyzer:
     
     def __init__(self, engine_path: str, pose_model_path: str, classifier_model_path: str, 
                  detector_inverted: bool = None, player_side: str = None,
-                 uci_options: Optional[Dict[str, int]] = None):
+                 uci_options: Optional[Dict[str, int]] = None,
+                 onnx_providers: Optional[list] = None):
         """
         初始化分析器
         
@@ -526,14 +563,16 @@ class XiangqiAnalyzer:
             detector_inverted: 已废弃，仅保留兼容；棋盘朝向改为按红帅位置自动判断
             player_side: 我方执子 (red/black/auto)，为 None 时按红方处理
             uci_options: 引擎启动时下发的 UCI 选项（Threads/Hash 等）
+            onnx_providers: ONNX Runtime provider 列表，默认 CUDA -> CPU
         """
         self.engine_path = engine_path
         self.detector_inverted = detector_inverted
         self.player_side = player_side if player_side in ('red', 'black', 'auto') else 'red'
         self.uci_options = dict(uci_options or {})
         
-        # 初始化检测器
-        self.detector = ChessboardDetector(pose_model_path, classifier_model_path)
+        # 初始化检测器（内部完成 provider 选择与回退）
+        self.detector = ChessboardDetector(pose_model_path, classifier_model_path,
+                                           onnx_providers=onnx_providers)
         
         # 初始化引擎（延迟初始化，需要时再启动）
         self.engine = None

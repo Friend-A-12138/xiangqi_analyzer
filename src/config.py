@@ -79,6 +79,7 @@ DEFAULT_CONFIG = {
     'think_time': 2000,
     'analysis_interval': 3,
     'frame_diff_threshold': 3.0,
+    'onnx_providers': ['CUDAExecutionProvider', 'CPUExecutionProvider'],
     'max_users': 5,
     'uci_options': DEFAULT_UCI_OPTIONS,
     'enable_tunnel': False,
@@ -243,6 +244,9 @@ def normalize_config(config: Dict[str, Any]) -> Dict[str, Any]:
     # 引擎 UCI 选项（Threads/Hash），未知选项忽略
     result['uci_options'] = _normalize_uci_options(result.get('uci_options'))
 
+    # ONNX Runtime provider（默认 CUDA -> CPU，运行时按可用性回退）
+    result['onnx_providers'] = _normalize_providers(result.get('onnx_providers'))
+
     # 布尔参数（兼容 "true"/1 这类来自JSON或表单的值）
     result['enable_tunnel'] = _to_bool(result['enable_tunnel'])
 
@@ -276,6 +280,33 @@ def _normalize_uci_options(value: Any) -> Dict[str, int]:
         options[key] = _clamp_int(raw, (low, high), options[key])
 
     return options
+
+
+def _normalize_providers(value: Any) -> List[str]:
+    """校验 ONNX Runtime provider 列表
+
+    Args:
+        value: 字符串或字符串列表
+
+    Returns:
+        List[str]: 去重后的 provider 名称，空值回退默认
+    """
+    defaults = list(DEFAULT_CONFIG['onnx_providers'])
+
+    if isinstance(value, str):
+        value = [value]
+
+    if not isinstance(value, (list, tuple)):
+        logger.warning(f"onnx_providers 应为数组，已回退默认值: {value}")
+        return defaults
+
+    providers = []
+    for item in value:
+        name = str(item).strip()
+        if name and name not in providers:
+            providers.append(name)
+
+    return providers or defaults
 
 
 def _clamp_int(value: Any, value_range: tuple, default: int) -> int:

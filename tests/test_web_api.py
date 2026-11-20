@@ -164,7 +164,8 @@ def test_get_analyzer_passes_uci_options(tmp_path, monkeypatch):
 
     monkeypatch.setattr(webapp, 'XiangqiAnalyzer', DummyAnalyzer)
     webapp.init_app({'engine_path': str(engine_file),
-                     'uci_options': {'Threads': 3, 'Hash': 128}},
+                     'uci_options': {'Threads': 3, 'Hash': 128},
+                     'onnx_providers': ['CPUExecutionProvider']},
                     config_file_path=str(tmp_path / 'config.json'))
     webapp.analyzer = None
 
@@ -172,6 +173,7 @@ def test_get_analyzer_passes_uci_options(tmp_path, monkeypatch):
     assert error is None
     assert isinstance(analyzer, DummyAnalyzer)
     assert captured['uci_options'] == {'Threads': 3, 'Hash': 128}
+    assert captured['onnx_providers'] == ['CPUExecutionProvider']
     webapp.analyzer = None
 
 
