@@ -1,8 +1,8 @@
-# 运行时依赖
-# 注意：这里不包含 ONNX Runtime，避免重装时把已安装的 GPU 版覆盖成 CPU 版。
-# 请按硬件选择其一安装：
-#   pip install -r requirements-onnxruntime-cpu.txt   # 默认，CPU 推理
-#   pip install -r requirements-onnxruntime-gpu.txt   # 可选，NVIDIA GPU
+# Runtime dependencies.
+# ONNX Runtime is NOT listed here on purpose, so reinstalling never overwrites
+# an already installed GPU build. Install one of:
+#   pip install -r requirements-onnxruntime-cpu.txt
+#   pip install -r requirements-onnxruntime-gpu.txt
 opencv-python>=4.5.0
 numpy>=1.21.0
 Pillow>=8.0.0
@@ -11,5 +11,5 @@ flask-socketio>=5.0.0
 pyautogui>=0.9.50
 mss>=6.1.0
 requests>=2.25.0
-# 检测器子模块 Chinese_Chess_Recognition 真实使用（core/chessboard_detector.py）
+# Required by Chinese_Chess_Recognition/core/chessboard_detector.py
 pandas>=2.3.3

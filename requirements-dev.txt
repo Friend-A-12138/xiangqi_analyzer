@@ -1,5 +1,5 @@
-# 开发依赖：运行时依赖 + 测试/格式化工具
-# 安装：pip install -r requirements-dev.txt
+# Development dependencies: runtime deps + test/format tools.
+# Install with: pip install -r requirements-dev.txt
 -r requirements.txt
 pytest>=6.0.0
 black>=21.0.0
