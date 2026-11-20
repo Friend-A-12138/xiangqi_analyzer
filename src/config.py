@@ -4,8 +4,10 @@
 """
 
 import copy
+import ctypes
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -13,6 +15,58 @@ logger = logging.getLogger(__name__)
 
 # 项目根目录（src 的上一级）
 project_root = Path(__file__).parent.parent
+
+
+def physical_cpu_count() -> int:
+    """返回 CPU 物理核数
+
+    Windows 下通过 GetLogicalProcessorInformationEx 统计物理核，
+    其他平台或调用失败时退回逻辑核数。
+
+    Returns:
+        int: 物理核数，至少为 1
+    """
+    if os.name == 'nt':
+        try:
+            kernel32 = ctypes.windll.kernel32
+            length = ctypes.c_uint32(0)
+
+            # RelationProcessorCore = 0
+            if kernel32.GetLogicalProcessorInformationEx(0, None, ctypes.byref(length)) == 0 \
+                    and length.value > 0:
+                buffer = ctypes.create_string_buffer(length.value)
+                if kernel32.GetLogicalProcessorInformationEx(
+                        0, buffer, ctypes.byref(length)) != 0:
+                    count = 0
+                    offset = 0
+                    while offset + 8 <= length.value:
+                        relationship = ctypes.c_uint.from_buffer(buffer, offset).value
+                        size = ctypes.c_uint.from_buffer(buffer, offset + 4).value
+                        if size <= 0:
+                            break
+                        if relationship == 0:
+                            count += 1
+                        offset += size
+
+                    if count > 0:
+                        return count
+        except Exception as e:
+            logger.debug(f"获取物理核数失败，改用逻辑核数: {e}")
+
+    return max(1, os.cpu_count() or 1)
+
+
+# UCI 选项默认值：线程数取物理核数，哈希表 512MB
+DEFAULT_UCI_OPTIONS = {
+    'Threads': physical_cpu_count(),
+    'Hash': 512,
+}
+
+# UCI 选项取值范围（与 Pikafish 的 UCI 声明一致）
+UCI_OPTION_LIMITS = {
+    'Threads': (1, 1024),
+    'Hash': (1, 33554432),
+}
 
 # 默认配置
 DEFAULT_CONFIG = {
@@ -25,6 +79,7 @@ DEFAULT_CONFIG = {
     'think_time': 2000,
     'analysis_interval': 3,
     'max_users': 5,
+    'uci_options': DEFAULT_UCI_OPTIONS,
     'enable_tunnel': False,
     'tunnel_type': 'ngrok',
     'tunnel_config': {
@@ -178,10 +233,42 @@ def normalize_config(config: Dict[str, Any]) -> Dict[str, Any]:
     result['max_users'] = _clamp_int(
         result['max_users'], MAX_USERS_RANGE, DEFAULT_CONFIG['max_users'])
 
+    # 引擎 UCI 选项（Threads/Hash），未知选项忽略
+    result['uci_options'] = _normalize_uci_options(result.get('uci_options'))
+
     # 布尔参数（兼容 "true"/1 这类来自JSON或表单的值）
     result['enable_tunnel'] = _to_bool(result['enable_tunnel'])
 
     return result
+
+
+def _normalize_uci_options(value: Any) -> Dict[str, int]:
+    """校验引擎 UCI 选项，缺失项用默认值补齐
+
+    Args:
+        value: 形如 {"Threads": 8, "Hash": 512} 的字典
+
+    Returns:
+        Dict[str, int]: 只包含 Threads/Hash 的合法取值
+    """
+    options = dict(DEFAULT_UCI_OPTIONS)
+
+    if value is None:
+        return options
+
+    if not isinstance(value, dict):
+        logger.warning(f"uci_options 应为对象，已回退默认值: {value}")
+        return options
+
+    for key, raw in value.items():
+        if key not in UCI_OPTION_LIMITS:
+            logger.warning(f"忽略未知的引擎选项: {key}")
+            continue
+
+        low, high = UCI_OPTION_LIMITS[key]
+        options[key] = _clamp_int(raw, (low, high), options[key])
+
+    return options
 
 
 def _clamp_int(value: Any, value_range: tuple, default: int) -> int:

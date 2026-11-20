@@ -109,7 +109,7 @@ def test_upload_returns_serialized_result(client):
     assert body['transformed_board'].startswith('data:image/jpeg;base64,')
 
 
-def test_index_page_contains_board_and_arrow_hooks(client):
+def test_settings_page_contains_board_and_arrow_hooks(client):
     """首页包含按朝向渲染的棋盘与箭头绘制逻辑"""
     test_client, _ = client
     page = test_client.get('/').data.decode('utf-8')
@@ -118,6 +118,50 @@ def test_index_page_contains_board_and_arrow_hooks(client):
     assert 'drawBoardArrow' in page
     assert 'squares_view' in page
     assert '显示朝向' in page
+
+
+def test_settings_page_contains_uci_options(client):
+    """设置页包含引擎线程数与哈希表配置"""
+    test_client, _ = client
+    page = test_client.get('/settings').data.decode('utf-8')
+
+    assert 'uci-threads' in page
+    assert 'uci-hash' in page
+
+
+def test_config_update_persists_uci_options(client):
+    """设置页提交的 UCI 选项被保存"""
+    test_client, config_path = client
+    response = test_client.post('/api/config', json={
+        'uci_options': {'Threads': 4, 'Hash': 1024}
+    })
+
+    assert response.status_code == 200
+    saved = json.loads(open(config_path, encoding='utf-8').read())
+    assert saved['uci_options'] == {'Threads': 4, 'Hash': 1024}
+
+
+def test_get_analyzer_passes_uci_options(tmp_path, monkeypatch):
+    """按需创建分析器时把 UCI 选项传下去"""
+    engine_file = tmp_path / 'pikafish.exe'
+    engine_file.write_bytes(b'fake')
+    captured = {}
+
+    class DummyAnalyzer:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(webapp, 'XiangqiAnalyzer', DummyAnalyzer)
+    webapp.init_app({'engine_path': str(engine_file),
+                     'uci_options': {'Threads': 3, 'Hash': 128}},
+                    config_file_path=str(tmp_path / 'config.json'))
+    webapp.analyzer = None
+
+    analyzer, error = webapp.get_analyzer()
+    assert error is None
+    assert isinstance(analyzer, DummyAnalyzer)
+    assert captured['uci_options'] == {'Threads': 3, 'Hash': 128}
+    webapp.analyzer = None
 
 
 def test_upload_batch_returns_notation(client):

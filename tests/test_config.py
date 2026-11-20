@@ -1,9 +1,10 @@
 """配置模块单元测试"""
 import argparse
 import json
+import os
 
 from src.config import (check_config, default_config, load_config, merge_cli_args,
-                        normalize_config, save_config)
+                        normalize_config, physical_cpu_count, save_config)
 
 
 def test_default_config_is_copied():
@@ -79,3 +80,37 @@ def test_save_config_writes_utf8_json(config_file):
     save_config({'source_value': '模拟器'}, config_file)
     text = json.load(open(config_file, encoding='utf-8'))['source_value']
     assert text == '模拟器'
+
+
+def test_physical_cpu_count_is_sane():
+    """物理核数在 1 到逻辑核数之间"""
+    count = physical_cpu_count()
+    assert 1 <= count <= max(1, os.cpu_count() or 1)
+
+
+def test_default_uci_options():
+    """默认线程数取物理核数，哈希 512MB"""
+    options = default_config()['uci_options']
+    assert options['Threads'] == physical_cpu_count()
+    assert options['Hash'] == 512
+
+
+def test_normalize_uci_options_overrides_and_clamps():
+    """显式配置的 UCI 选项生效并夹取到合法范围"""
+    options = normalize_config({'uci_options': {'Threads': 9999, 'Hash': '256'}})['uci_options']
+    assert options['Threads'] == 1024
+    assert options['Hash'] == 256
+
+    low = normalize_config({'uci_options': {'Threads': 0}})['uci_options']
+    assert low['Threads'] == 1
+
+
+def test_normalize_uci_options_ignores_unknown_and_bad_shapes():
+    """未知选项被忽略，非对象回退默认值"""
+    options = normalize_config({'uci_options': {'Threads': 8, 'MultiPV': 3}})['uci_options']
+    assert options['Threads'] == 8
+    assert 'MultiPV' not in options
+
+    fallback = normalize_config({'uci_options': 'fast'})['uci_options']
+    assert fallback['Threads'] == physical_cpu_count()
+    assert fallback['Hash'] == 512

@@ -80,6 +80,38 @@ def fake_engine(tmp_path, monkeypatch):
     return engine, process
 
 
+def test_engine_sends_uci_options(tmp_path, monkeypatch):
+    """启动后按配置下发 Threads/Hash"""
+    engine_path = tmp_path / 'pikafish.exe'
+    engine_path.write_bytes(b'fake')
+
+    process = FakeProcess()
+    monkeypatch.setattr(module.subprocess, 'Popen',
+                        lambda *args, **kwargs: process)
+
+    PikafishEngine(str(engine_path),
+                   uci_options={'Threads': 6, 'Hash': 256})
+
+    commands = process.stdin.commands
+    assert 'setoption name Threads value 6' in commands
+    assert 'setoption name Hash value 256' in commands
+
+
+def test_engine_skips_options_when_empty(tmp_path, monkeypatch):
+    """未配置 UCI 选项时不下发 setoption"""
+    engine_path = tmp_path / 'pikafish.exe'
+    engine_path.write_bytes(b'fake')
+
+    process = FakeProcess()
+    monkeypatch.setattr(module.subprocess, 'Popen',
+                        lambda *args, **kwargs: process)
+
+    PikafishEngine(str(engine_path))
+
+    options = [cmd for cmd in process.stdin.commands if cmd.startswith('setoption name Threads')]
+    assert options == []
+
+
 def test_engine_parses_best_move(fake_engine):
     """解析 bestmove 与 cp 评分"""
     engine, _ = fake_engine

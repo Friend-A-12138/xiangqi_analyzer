@@ -8,6 +8,10 @@
   "think_time": 2000,
   "analysis_interval": 3,
   "max_users": 5,
+  "uci_options": {
+    "Threads": 14,
+    "Hash": 512
+  },
   "enable_tunnel": false,
   "tunnel_type": "ngrok",
   "tunnel_config": {

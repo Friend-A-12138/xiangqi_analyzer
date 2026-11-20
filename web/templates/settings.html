@@ -113,6 +113,24 @@
                             <input type="range" class="form-range" id="analysis-interval" min="1" max="10" step="1" 
                                    value="{{ config.analysis_interval }}">
                         </div>
+                        <div class="row">
+                            <div class="col-6">
+                                <div class="mb-3">
+                                    <label for="uci-threads" class="form-label">引擎线程数</label>
+                                    <input type="number" class="form-control" id="uci-threads"
+                                           min="1" max="1024" value="{{ config.uci_options.Threads }}">
+                                    <div class="form-text">默认取 CPU 物理核数</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="mb-3">
+                                    <label for="uci-hash" class="form-label">哈希表 (MB)</label>
+                                    <input type="number" class="form-control" id="uci-hash"
+                                           min="1" max="33554432" value="{{ config.uci_options.Hash }}">
+                                    <div class="form-text">默认 512</div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     
                     <div class="d-grid">
@@ -476,7 +494,11 @@ function saveSettings(event) {
         source_value: sourceValue,
         player_side: document.getElementById('player-side').value,
         think_time: parseInt(document.getElementById('think-time').value),
-        analysis_interval: parseInt(document.getElementById('analysis-interval').value)
+        analysis_interval: parseInt(document.getElementById('analysis-interval').value),
+        uci_options: {
+            Threads: parseInt(document.getElementById('uci-threads').value) || 1,
+            Hash: parseInt(document.getElementById('uci-hash').value) || 512
+        }
     };
     
     fetch('/api/config', {

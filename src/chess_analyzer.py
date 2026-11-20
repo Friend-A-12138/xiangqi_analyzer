@@ -61,19 +61,22 @@ except Exception as e:
 class PikafishEngine:
     """Pikafish引擎封装类，支持UCI协议交互"""
 
-    def __init__(self, engine_path: str, timeout: int = 10):
+    def __init__(self, engine_path: str, timeout: int = 10,
+                 uci_options: Optional[Dict[str, int]] = None):
         """
         初始化引擎
 
         Args:
             engine_path: pikafish.exe的完整路径
             timeout: 引擎响应超时时间（秒）
+            uci_options: 启动后要下发的 UCI 选项，如 {"Threads": 14, "Hash": 512}
         """
         self.engine_path = Path(engine_path)
         if not self.engine_path.exists():
             raise FileNotFoundError(f"找不到Pikafish引擎: {engine_path}")
 
         self.timeout = timeout
+        self.uci_options = dict(uci_options or {})
         self.process = None
         self.crash_count = 0  # 新增：追踪连续崩溃次数
         self._start_engine()
@@ -107,6 +110,12 @@ class PikafishEngine:
             # 初始化UCI
             self._send_command("uci")
             self._wait_for_response("uciok")
+
+            # 下发引擎选项（线程数/哈希等），提升搜索速度
+            for name, value in self.uci_options.items():
+                self._send_command(f"setoption name {name} value {value}")
+            if self.uci_options:
+                logger.info(f"引擎选项已设置: {self.uci_options}")
 
             # 设置中国象棋变体
             self._send_command("setoption name UCI_Variant value xiangqi")
@@ -505,7 +514,8 @@ class XiangqiAnalyzer:
     """中国象棋分析器主类"""
     
     def __init__(self, engine_path: str, pose_model_path: str, classifier_model_path: str, 
-                 detector_inverted: bool = None, player_side: str = None):
+                 detector_inverted: bool = None, player_side: str = None,
+                 uci_options: Optional[Dict[str, int]] = None):
         """
         初始化分析器
         
@@ -515,10 +525,12 @@ class XiangqiAnalyzer:
             classifier_model_path: 棋子分类模型路径
             detector_inverted: 已废弃，仅保留兼容；棋盘朝向改为按红帅位置自动判断
             player_side: 我方执子 (red/black/auto)，为 None 时按红方处理
+            uci_options: 引擎启动时下发的 UCI 选项（Threads/Hash 等）
         """
         self.engine_path = engine_path
         self.detector_inverted = detector_inverted
         self.player_side = player_side if player_side in ('red', 'black', 'auto') else 'red'
+        self.uci_options = dict(uci_options or {})
         
         # 初始化检测器
         self.detector = ChessboardDetector(pose_model_path, classifier_model_path)
@@ -531,7 +543,7 @@ class XiangqiAnalyzer:
     def _ensure_engine_started(self):
         """确保引擎已启动"""
         if self.engine is None:
-            self.engine = PikafishEngine(self.engine_path)
+            self.engine = PikafishEngine(self.engine_path, uci_options=self.uci_options)
     
     def analyze_image(self, image: np.ndarray, think_time: int = 2000) -> Optional[Dict]:
         """
