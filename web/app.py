@@ -20,7 +20,6 @@ import cv2
 import numpy as np
 import base64
 from io import BytesIO
-from PIL import Image
 
 # 添加父目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
