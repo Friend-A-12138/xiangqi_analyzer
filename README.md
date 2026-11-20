@@ -165,6 +165,7 @@ python main.py --enable-tunnel --tunnel-token YOUR_NGROK_TOKEN
   "player_side": "red",
   "think_time": 2000,
   "analysis_interval": 3,
+  "frame_diff_threshold": 3.0,
   "max_users": 5,
   "uci_options": {
     "Threads": 14,
@@ -182,6 +183,7 @@ python main.py --enable-tunnel --tunnel-token YOUR_NGROK_TOKEN
 - `player_side`：我方执子，`red` 红方走子 / `black` 黑方走子 / `auto` 按红帅位置推断
 - `max_users`：账号数量与在线人数上限（1-20）
 - `uci_options`：引擎启动时下发的 UCI 选项；`Threads` 默认取 CPU 物理核数，`Hash` 默认 512（MB）
+- `frame_diff_threshold`：画面变化阈值（灰度均方差），低于该值跳过检测与引擎调用，0 表示不跳过
 - `source_value`：`stream` 为流地址、`emulator` 为模拟器名称或窗口标题、`screen` 为 `x,y,width,height`
 
 完整示例见 [config/config.example.json](config/config.example.json)。配置文件由 Web 设置页读写，修改后重启仍生效。

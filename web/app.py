@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.chess_analyzer import XiangqiAnalyzer, analyze_image_file
 from src.board_render import draw_on_original
+from src.frame_diff import frame_signature, is_frame_changed
 from src.config import (check_config, default_config, load_config,
                         normalize_config, save_config)
 from src.stream_processor import (RTMPStreamProcessor, EmulatorCapture,
@@ -58,6 +59,8 @@ analysis_thread = None
 running = False
 latest_result = None
 latest_arrow = None
+last_analyzed_signature = None   # 上次真正做分析的帧签名
+last_preview_signature = None    # 上次推送预览的帧签名
 analysis_config = default_config()
 
 # 内网穿透管理器与实际监听端口（用于 ngrok/frp 转发）
@@ -669,6 +672,7 @@ def update_config():
 def start_analysis():
     """开始分析"""
     global running, analyzer, capture_thread, analysis_thread, latest_arrow
+    global last_analyzed_signature, last_preview_signature
     
     session_id = session.get('session_id')
     if not session_id or not user_manager.is_logged_in(session_id):
@@ -685,6 +689,8 @@ def start_analysis():
         
         running = True
         latest_arrow = None  # 新一轮分析前清掉旧箭头，避免叠加到新画面上
+        last_analyzed_signature = None
+        last_preview_signature = None
         
         # 启动捕获线程
         capture_thread = threading.Thread(target=capture_loop, daemon=True)
@@ -705,7 +711,7 @@ def start_analysis():
 @app.route('/api/stop', methods=['POST'])
 def stop_analysis():
     """停止分析"""
-    global running, latest_arrow
+    global running, latest_arrow, last_analyzed_signature, last_preview_signature
     
     session_id = session.get('session_id')
     if not session_id or not user_manager.is_logged_in(session_id):
@@ -713,6 +719,8 @@ def stop_analysis():
     
     running = False
     latest_arrow = None
+    last_analyzed_signature = None
+    last_preview_signature = None
     logger.info("分析已停止")
     return jsonify({'success': True})
 
@@ -865,7 +873,7 @@ def handle_disconnect():
 # 后台线程
 def capture_loop():
     """捕获循环"""
-    global stream_processor, emulator_capture, screen_capture
+    global stream_processor, emulator_capture, screen_capture, last_preview_signature
     
     while running:
         try:
@@ -900,22 +908,34 @@ def capture_loop():
             
             # 如果有新帧，可以通过socket发送给前端预览
             if frame is not None:
-                # 有推荐走法时，在预览帧上叠加箭头（坐标来自最近一次分析）
-                preview_frame = frame
-                if latest_arrow:
-                    annotated = draw_on_original(frame, latest_arrow)
-                    if annotated is not None:
-                        preview_frame = annotated
+                # 帧差分：画面和上一帧几乎一样时不重复编码、推送
+                signature = frame_signature(frame)
+                changed, score = is_frame_changed(
+                    signature, last_preview_signature,
+                    analysis_config.get('frame_diff_threshold', 3.0))
 
-                # 压缩并发送预览
-                small_frame = cv2.resize(preview_frame, (320, 240))
-                _, buffer = cv2.imencode('.jpg', small_frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
-                img_base64 = base64.b64encode(buffer).decode()
-                
-                socketio.emit('preview', {
-                    'image': f"data:image/jpeg;base64,{img_base64}",
-                    'timestamp': datetime.now().isoformat()
-                })
+                if changed:
+                    last_preview_signature = signature
+
+                    # 有推荐走法时，在预览帧上叠加箭头（坐标来自最近一次分析）
+                    preview_frame = frame
+                    if latest_arrow:
+                        annotated = draw_on_original(frame, latest_arrow)
+                        if annotated is not None:
+                            preview_frame = annotated
+
+                    # 压缩并发送预览
+                    small_frame = cv2.resize(preview_frame, (320, 240))
+                    _, buffer = cv2.imencode('.jpg', small_frame,
+                                             [cv2.IMWRITE_JPEG_QUALITY, 70])
+                    img_base64 = base64.b64encode(buffer).decode()
+
+                    socketio.emit('preview', {
+                        'image': f"data:image/jpeg;base64,{img_base64}",
+                        'timestamp': datetime.now().isoformat()
+                    })
+                else:
+                    logger.debug(f"预览画面无变化，跳过推送（差异 {score:.2f}）")
             
             time.sleep(0.5)  # 控制捕获频率
             
@@ -925,7 +945,7 @@ def capture_loop():
 
 def analysis_loop():
     """分析循环"""
-    global latest_result, latest_arrow
+    global latest_result, latest_arrow, last_analyzed_signature
     
     while running:
         try:
@@ -943,14 +963,23 @@ def analysis_loop():
             
             # 分析帧
             if frame is not None and analyzer:
-                result = analyzer.analyze_image(frame, analysis_config['think_time'])
-                
-                if result:
-                    latest_result = result
-                    latest_arrow = result.get('arrow')
-                    
-                    # 只推送文本信息，图像单独走 /api/result
-                    socketio.emit('analysis_result', serialize_result(result))
+                threshold = analysis_config.get('frame_diff_threshold', 3.0)
+                signature = frame_signature(frame)
+                changed, score = is_frame_changed(
+                    signature, last_analyzed_signature, threshold)
+
+                if not changed:
+                    logger.info(f"画面无变化，跳过（差异 {score:.2f} < 阈值 {threshold:g}）")
+                else:
+                    result = analyzer.analyze_image(frame, analysis_config['think_time'])
+
+                    if result:
+                        last_analyzed_signature = signature
+                        latest_result = result
+                        latest_arrow = result.get('arrow')
+
+                        # 只推送文本信息，图像单独走 /api/result
+                        socketio.emit('analysis_result', serialize_result(result))
             
             # 等待下一个分析周期
             time.sleep(analysis_config['analysis_interval'])

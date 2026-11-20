@@ -114,3 +114,11 @@ def test_normalize_uci_options_ignores_unknown_and_bad_shapes():
     fallback = normalize_config({'uci_options': 'fast'})['uci_options']
     assert fallback['Threads'] == physical_cpu_count()
     assert fallback['Hash'] == 512
+
+
+def test_normalize_frame_diff_threshold():
+    """画面变化阈值支持字符串、并夹取到非负范围"""
+    assert default_config()['frame_diff_threshold'] == 3.0
+    assert normalize_config({'frame_diff_threshold': '5.5'})['frame_diff_threshold'] == 5.5
+    assert normalize_config({'frame_diff_threshold': -1})['frame_diff_threshold'] == 0.0
+    assert normalize_config({'frame_diff_threshold': 'abc'})['frame_diff_threshold'] == 3.0

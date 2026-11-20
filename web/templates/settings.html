@@ -131,6 +131,15 @@
                                 </div>
                             </div>
                         </div>
+                        <div class="mb-3">
+                            <label for="frame-diff-threshold" class="form-label">画面变化阈值（灰度均方差）</label>
+                            <input type="number" class="form-control" id="frame-diff-threshold"
+                                   min="0" max="10000" step="0.5"
+                                   value="{{ config.frame_diff_threshold }}">
+                            <div class="form-text">
+                                低于该值视为画面无变化，跳过检测与引擎调用；0 表示不跳过
+                            </div>
+                        </div>
                     </div>
                     
                     <div class="d-grid">
@@ -495,6 +504,7 @@ function saveSettings(event) {
         player_side: document.getElementById('player-side').value,
         think_time: parseInt(document.getElementById('think-time').value),
         analysis_interval: parseInt(document.getElementById('analysis-interval').value),
+        frame_diff_threshold: parseFloat(document.getElementById('frame-diff-threshold').value) || 0,
         uci_options: {
             Threads: parseInt(document.getElementById('uci-threads').value) || 1,
             Hash: parseInt(document.getElementById('uci-hash').value) || 512

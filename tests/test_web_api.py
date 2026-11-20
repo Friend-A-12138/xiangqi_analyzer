@@ -127,6 +127,17 @@ def test_settings_page_contains_uci_options(client):
 
     assert 'uci-threads' in page
     assert 'uci-hash' in page
+    assert 'frame-diff-threshold' in page
+
+
+def test_config_update_persists_frame_diff_threshold(client):
+    """画面变化阈值可保存"""
+    test_client, config_path = client
+    response = test_client.post('/api/config', json={'frame_diff_threshold': 7.5})
+
+    assert response.status_code == 200
+    saved = json.loads(open(config_path, encoding='utf-8').read())
+    assert saved['frame_diff_threshold'] == 7.5
 
 
 def test_config_update_persists_uci_options(client):

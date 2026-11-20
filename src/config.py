@@ -78,6 +78,7 @@ DEFAULT_CONFIG = {
     'player_side': 'red',
     'think_time': 2000,
     'analysis_interval': 3,
+    'frame_diff_threshold': 3.0,
     'max_users': 5,
     'uci_options': DEFAULT_UCI_OPTIONS,
     'enable_tunnel': False,
@@ -99,6 +100,9 @@ PLAYER_SIDES = ('red', 'black', 'auto')
 THINK_TIME_RANGE = (500, 10000)
 ANALYSIS_INTERVAL_RANGE = (1, 60)
 MAX_USERS_RANGE = (1, 20)
+
+# 画面变化阈值（灰度均方差），0 表示不做跳过
+FRAME_DIFF_RANGE = (0.0, 10000.0)
 
 
 def config_path() -> Path:
@@ -232,6 +236,9 @@ def normalize_config(config: Dict[str, Any]) -> Dict[str, Any]:
         DEFAULT_CONFIG['analysis_interval'])
     result['max_users'] = _clamp_int(
         result['max_users'], MAX_USERS_RANGE, DEFAULT_CONFIG['max_users'])
+    result['frame_diff_threshold'] = _clamp_float(
+        result['frame_diff_threshold'], FRAME_DIFF_RANGE,
+        DEFAULT_CONFIG['frame_diff_threshold'])
 
     # 引擎 UCI 选项（Threads/Hash），未知选项忽略
     result['uci_options'] = _normalize_uci_options(result.get('uci_options'))
@@ -275,6 +282,17 @@ def _clamp_int(value: Any, value_range: tuple, default: int) -> int:
     """把值转换为整数并限制在范围内"""
     try:
         number = int(value)
+    except (TypeError, ValueError):
+        return default
+
+    low, high = value_range
+    return max(low, min(high, number))
+
+
+def _clamp_float(value: Any, value_range: tuple, default: float) -> float:
+    """把值转换为浮点数并限制在范围内"""
+    try:
+        number = float(value)
     except (TypeError, ValueError):
         return default
 
