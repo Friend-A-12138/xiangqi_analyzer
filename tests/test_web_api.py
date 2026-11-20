@@ -14,16 +14,30 @@ class FakeAnalyzer:
 
     def analyze_image(self, image, think_time=2000):
         layout = [list('4k4')] + [list('.........') for _ in range(8)] + [list('4K4')]
+        view = [['点'] * 9 for _ in range(10)]
+        squares = [[f"{chr(ord('a') + col)}{9 - row}" for col in range(9)]
+                   for row in range(10)]
         return {
             'timestamp': '2026-01-01T00:00:00',
             'fen': '4k4/9/9/9/9/9/9/9/9/4K4',
             'layout_pgn': layout,
+            'board': layout,
             'layout_2d': [['点'] * 9 for _ in range(10)],
+            'view': view,
+            'squares_view': squares,
+            'orientation': 'red_bottom',
             'scores': [[0.9] * 9 for _ in range(10)],
             'detect_time': 0.2,
             'time_info': '推理用时: 0.20s',
             'occluded_count': 0,
             'best_move': 'h2e2',
+            'best_move_cn': '炮八平五',
+            'move_note': {'ok': True, 'text': '炮八平五', 'error': None},
+            'arrow': {'from_square': 'h2', 'to_square': 'e2', 'side': 'red',
+                      'board': {'from': [50, 250], 'to': [225, 250],
+                                'size': [450, 500]},
+                      'original': {'from': [10, 10], 'to': [30, 30],
+                                   'size': [40, 40]}},
             'score': 0.5,
             'original_with_keypoints': image,
             'transformed_board': image,
@@ -85,8 +99,38 @@ def test_upload_returns_serialized_result(client):
     assert response.status_code == 200
     assert body['fen'] == '4k4/9/9/9/9/9/9/9/9/4K4'
     assert body['best_move'] == 'h2e2'
+    assert body['best_move_cn'] == '炮八平五'
+    assert body['orientation'] == 'red_bottom'
+    assert body['squares_view'][9][4] == 'e0'
+    assert body['view'][9][4] == '点'
+    assert body['arrow']['from_square'] == 'h2'
+    assert body['arrow']['to_square'] == 'e2'
     assert isinstance(body['detect_time'], float)
     assert body['transformed_board'].startswith('data:image/jpeg;base64,')
+
+
+def test_index_page_contains_board_and_arrow_hooks(client):
+    """首页包含按朝向渲染的棋盘与箭头绘制逻辑"""
+    test_client, _ = client
+    page = test_client.get('/').data.decode('utf-8')
+
+    assert 'board-arrow-layer' in page
+    assert 'drawBoardArrow' in page
+    assert 'squares_view' in page
+    assert '显示朝向' in page
+
+
+def test_upload_batch_returns_notation(client):
+    """批量结果包含中文记谱字段"""
+    test_client, _ = client
+    response = test_client.post(
+        '/api/upload_batch',
+        data={'images': [(io.BytesIO(make_image_bytes()), 'one.png')]},
+        content_type='multipart/form-data')
+
+    item = response.get_json()['results'][0]
+    assert item['success']
+    assert item['best_move_cn'] == '炮八平五'
 
 
 def test_upload_batch_continues_after_bad_file(client):

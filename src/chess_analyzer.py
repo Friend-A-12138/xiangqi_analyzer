@@ -16,7 +16,8 @@ import logging
 from datetime import datetime
 from .chess_validator import ChessboardValidator, CATEGORY_MAP, CATEGORY_MAP_REVERSE
 from .board_view import build_board_view
-from .xiangqi_notation import move_to_chinese
+from .board_render import board_point, to_original
+from .xiangqi_notation import move_to_chinese, square_to_rowcol
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -48,6 +49,7 @@ def parse_time_info(time_info) -> float:
 # 现在可以安全导入
 try:
     from core.chessboard_detector import ChessboardDetector as OriginalDetector
+    from core.helper_4_kpt import extract_chessboard
     CORE_AVAILABLE = True
 except Exception as e:
     CORE_AVAILABLE = False
@@ -365,16 +367,31 @@ class ChessboardDetector:
         try:
             # 原始检测器按 RGB 训练，这里统一转换，否则红黑棋子颜色会颠倒
             image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            start_time = time.time()
 
-            result = self.detector.pred_detect_board_and_classifier(image_rgb)
-            if not result or result[0] is None:
-                logger.warning("检测器未返回有效结果，可能图片中没有完整棋盘")
-                return None
+            keypoints = None
+            board_corners = None
 
-            original_with_keypoints, transformed_board, cell_labels_str, scores, time_info = result
+            try:
+                # 拆开调用以便保留棋盘四角，箭头才能映射回原图
+                keypoints, keypoint_scores = self.detector.pred_keypoints(
+                    cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR))
+                original_rgb = self.detector.pose.draw_pred(
+                    img=image_rgb.copy(), keypoints=keypoints, scores=keypoint_scores)
+                transformed_board, cell_labels_str, scores, board_corners = \
+                    self._warp_and_classify(image_rgb, keypoints)
+                time_info = f"推理用时: {time.time() - start_time:.2f}s"
+
+            except Exception as exc:
+                logger.warning(f"关键点提取失败，回退到默认检测流程: {exc}")
+                result = self.detector.pred_detect_board_and_classifier(image_rgb)
+                if not result or result[0] is None:
+                    logger.warning("检测器未返回有效结果，可能图片中没有完整棋盘")
+                    return None
+                original_rgb, transformed_board, cell_labels_str, scores, time_info = result
 
             # 检测器输出为 RGB，转回 BGR 供颜色校验和前端显示
-            original_bgr = cv2.cvtColor(original_with_keypoints, cv2.COLOR_RGB2BGR)
+            original_bgr = cv2.cvtColor(original_rgb, cv2.COLOR_RGB2BGR)
             transformed_bgr = cv2.cvtColor(transformed_board, cv2.COLOR_RGB2BGR)
 
             # 1. 解析为二维完整名称
@@ -419,12 +436,32 @@ class ChessboardDetector:
                 'detect_time': parse_time_info(time_info),
                 'time_info': str(time_info),
                 'occluded_count': cell_labels_str.count('x'),
-                'validation_report': validation_report if self.validator else None
+                'validation_report': validation_report if self.validator else None,
+                'keypoints': None if keypoints is None else np.asarray(keypoints, dtype=float).tolist(),
+                'board_corners': None if board_corners is None else np.asarray(board_corners, dtype=float).tolist()
             }
             
         except Exception as e:
             logger.error(f"检测失败: {e}")
             return None
+
+    def _warp_and_classify(self, image_rgb: np.ndarray, keypoints: np.ndarray):
+        """棋盘透视变换并做棋子分类
+
+        Args:
+            image_rgb: RGB 原图
+            keypoints: 棋盘四角的关键点（A0, A8, J0, J8）
+
+        Returns:
+            tuple: (棋盘图, 布局字符串, 置信度, 棋盘图四角坐标)
+        """
+        transformed_image, _transformed_keypoints, board_corners = \
+            extract_chessboard(img=image_rgb, keypoints=keypoints)
+
+        _, _, scores, layout_str = self.detector.full_classifier.pred(
+            transformed_image, is_rgb=True)
+
+        return transformed_image, layout_str, scores, board_corners
     
     def _generate_mock_result(self, image: np.ndarray) -> Dict:
         """生成模拟检测结果用于测试"""
@@ -457,7 +494,9 @@ class ChessboardDetector:
             'detect_time': time_info,
             'time_info': str(time_info),
             'occluded_count': 0,
-            'validation_report': None
+            'validation_report': None,
+            'keypoints': None,
+            'board_corners': None
         }
 
 
@@ -543,6 +582,9 @@ class XiangqiAnalyzer:
                     logger.info(f"📖 中文记谱: {notation['text']}")
                 else:
                     logger.warning(f"中文记谱失败: {notation['error']}")
+
+            # 箭头坐标：棋盘图坐标 + 原图坐标（实时预览叠加用）
+            arrow = self._build_arrow(best_move, detect_result, board)
             
             # 组装最终结果
             final_result = {
@@ -564,6 +606,9 @@ class XiangqiAnalyzer:
                 'best_move': best_move,
                 'best_move_cn': notation['text'] if notation and notation['ok'] else None,
                 'move_note': notation,
+                'arrow': arrow,
+                'keypoints': detect_result.get('keypoints'),
+                'board_corners': detect_result.get('board_corners'),
                 'score': analysis['score'],
                 'original_with_keypoints': detect_result['original_with_keypoints'],
                 'transformed_board': detect_result['transformed_board'],
@@ -577,6 +622,63 @@ class XiangqiAnalyzer:
             logger.error(f"分析失败: {e}")
             return None
     
+    def _build_arrow(self, move: Optional[str], detect_result: Dict,
+                     board: List[List[str]]) -> Optional[Dict]:
+        """计算走法箭头在棋盘图与原图中的坐标
+
+        Args:
+            move: UCI 走法
+            detect_result: 检测结果（含 keypoints / board_corners）
+            board: FEN 顺序的棋盘，用于判断走子方
+
+        Returns:
+            dict: 箭头坐标；缺少关键点或坐标越界时返回 None
+        """
+        if not move or len(move) < 4:
+            return None
+
+        keypoints = detect_result.get('keypoints')
+        corners = detect_result.get('board_corners')
+        if not keypoints or corners is None:
+            return None
+
+        try:
+            from_row, from_col = square_to_rowcol(move[:2])
+            to_row, to_col = square_to_rowcol(move[2:4])
+
+            start = board_point(from_row, from_col, corners)
+            end = board_point(to_row, to_col, corners)
+
+            piece = board[from_row][from_col]
+            side = 'red' if piece.isupper() else ('black' if piece.islower() else 'red')
+
+            board_image = detect_result.get('transformed_board')
+            board_size = list(board_image.shape[1::-1]) if board_image is not None else [0, 0]
+
+            arrow = {
+                'from_square': move[:2],
+                'to_square': move[2:4],
+                'side': side,
+                'board': {'from': start, 'to': end, 'size': board_size},
+                'original': None
+            }
+
+            original = to_original([start, end], keypoints, corners)
+            original_image = detect_result.get('original_with_keypoints')
+            if original and original_image is not None:
+                height, width = original_image.shape[:2]
+                arrow['original'] = {
+                    'from': original[0],
+                    'to': original[1],
+                    'size': [width, height]
+                }
+
+            return arrow
+
+        except Exception as e:
+            logger.warning(f"箭头坐标计算失败: {e}")
+            return None
+
     def _side_to_move(self) -> Optional[str]:
         """根据我方执子返回 FEN 中的走子方
         

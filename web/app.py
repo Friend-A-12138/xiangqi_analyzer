@@ -26,6 +26,7 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.chess_analyzer import XiangqiAnalyzer, analyze_image_file
+from src.board_render import draw_on_original
 from src.config import (check_config, default_config, load_config,
                         normalize_config, save_config)
 from src.stream_processor import (RTMPStreamProcessor, EmulatorCapture,
@@ -56,6 +57,7 @@ capture_thread = None
 analysis_thread = None
 running = False
 latest_result = None
+latest_arrow = None
 analysis_config = default_config()
 
 # 内网穿透管理器与实际监听端口（用于 ngrok/frp 转发）
@@ -665,7 +667,7 @@ def update_config():
 @app.route('/api/start', methods=['POST'])
 def start_analysis():
     """开始分析"""
-    global running, analyzer, capture_thread, analysis_thread
+    global running, analyzer, capture_thread, analysis_thread, latest_arrow
     
     session_id = session.get('session_id')
     if not session_id or not user_manager.is_logged_in(session_id):
@@ -681,6 +683,7 @@ def start_analysis():
             return jsonify({'error': error}), 400
         
         running = True
+        latest_arrow = None  # 新一轮分析前清掉旧箭头，避免叠加到新画面上
         
         # 启动捕获线程
         capture_thread = threading.Thread(target=capture_loop, daemon=True)
@@ -701,13 +704,14 @@ def start_analysis():
 @app.route('/api/stop', methods=['POST'])
 def stop_analysis():
     """停止分析"""
-    global running
+    global running, latest_arrow
     
     session_id = session.get('session_id')
     if not session_id or not user_manager.is_logged_in(session_id):
         return jsonify({'error': '未登录'}), 401
     
     running = False
+    latest_arrow = None
     logger.info("分析已停止")
     return jsonify({'success': True})
 
@@ -895,8 +899,15 @@ def capture_loop():
             
             # 如果有新帧，可以通过socket发送给前端预览
             if frame is not None:
+                # 有推荐走法时，在预览帧上叠加箭头（坐标来自最近一次分析）
+                preview_frame = frame
+                if latest_arrow:
+                    annotated = draw_on_original(frame, latest_arrow)
+                    if annotated is not None:
+                        preview_frame = annotated
+
                 # 压缩并发送预览
-                small_frame = cv2.resize(frame, (320, 240))
+                small_frame = cv2.resize(preview_frame, (320, 240))
                 _, buffer = cv2.imencode('.jpg', small_frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
                 img_base64 = base64.b64encode(buffer).decode()
                 
@@ -913,7 +924,7 @@ def capture_loop():
 
 def analysis_loop():
     """分析循环"""
-    global latest_result
+    global latest_result, latest_arrow
     
     while running:
         try:
@@ -935,6 +946,7 @@ def analysis_loop():
                 
                 if result:
                     latest_result = result
+                    latest_arrow = result.get('arrow')
                     
                     # 只推送文本信息，图像单独走 /api/result
                     socketio.emit('analysis_result', serialize_result(result))

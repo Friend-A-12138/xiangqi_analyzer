@@ -339,6 +339,52 @@ function updateAnalysisResult(data) {
     }
 
     analysisDiv.innerHTML = html;
+    drawBoardArrow(data.arrow);
+}
+
+// 在棋盘网格上绘制走法箭头
+// 起点/终点按 data-square 查找，坐标来自 squares_view，跟随显示朝向
+function drawBoardArrow(arrow) {
+    const layer = document.getElementById('board-arrow-layer');
+    const wrap = document.getElementById('board-wrap');
+
+    if (!layer || !wrap || !arrow || !arrow.from_square || !arrow.to_square) {
+        return;
+    }
+
+    const fromEl = wrap.querySelector('[data-square="' + arrow.from_square + '"]');
+    const toEl = wrap.querySelector('[data-square="' + arrow.to_square + '"]');
+    if (!fromEl || !toEl) {
+        return;
+    }
+
+    const wrapRect = wrap.getBoundingClientRect();
+    const fromRect = fromEl.getBoundingClientRect();
+    const toRect = toEl.getBoundingClientRect();
+
+    const x1 = fromRect.left - wrapRect.left + fromRect.width / 2;
+    const y1 = fromRect.top - wrapRect.top + fromRect.height / 2;
+    const x2 = toRect.left - wrapRect.left + toRect.width / 2;
+    const y2 = toRect.top - wrapRect.top + toRect.height / 2;
+
+    const color = arrow.side === 'black' ? '#1f4fd8' : '#d9534f';
+
+    layer.setAttribute('width', wrapRect.width);
+    layer.setAttribute('height', wrapRect.height);
+    layer.setAttribute('viewBox', '0 0 ' + wrapRect.width + ' ' + wrapRect.height);
+
+    let svg = '<defs><marker id="board-arrow-head" markerWidth="10" markerHeight="8" ' +
+              'refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 Z" fill="' +
+              color + '"/></marker></defs>';
+    svg += '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '"' +
+           ' stroke="#ffffff" stroke-width="7" stroke-linecap="round" opacity="0.85"/>';
+    svg += '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '"' +
+           ' stroke="' + color + '" stroke-width="4" stroke-linecap="round"' +
+           ' marker-end="url(#board-arrow-head)"/>';
+    svg += '<circle cx="' + x1 + '" cy="' + y1 + '" r="6" fill="#ffffff"/>';
+    svg += '<circle cx="' + x1 + '" cy="' + y1 + '" r="4" fill="' + color + '"/>';
+
+    layer.innerHTML = svg;
 }
 
 // 上传图片分析
