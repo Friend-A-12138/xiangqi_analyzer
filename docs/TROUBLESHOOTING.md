@@ -2,569 +2,159 @@
 
 ## 🚨 快速诊断
 
-### 运行诊断工具
+```bash
+python test_system.py                     # 模块/目录/路由自检
+python -m pytest                          # 108 个用例
+python tests/test_pikafish.py <引擎路径>   # 引擎专项检查
+python tests/test_debug.py                # 通用调试工具
+```
+
+日志：`logs/xiangqi_analyzer.log`。
+
+## 📦 依赖问题
+
+### 问题1: `ModuleNotFoundError: No module named 'pandas'`
+
+检测器子模块 `Chinese_Chess_Recognition/core/chessboard_detector.py` 使用 pandas，
+已包含在 `requirements.txt` 中：
 
 ```bash
-# 测试Pikafish引擎
-python tests/test_pikafish.py /path/to/pikafish
-
-# 运行完整系统测试
-python tests/test_debug.py
-
-# 交互式调试
-python tests/test_debug.py --interactive
+pip install -r requirements.txt
 ```
 
-## 🔍 常见问题
+### 问题2: `No module named 'onnxruntime'`
 
-### 1. Pikafish引擎问题
-
-#### 问题1.1: 没有执行权限
-
-**错误信息:**
-```
-PermissionError: [Errno 13] Permission denied
-```
-
-**解决方法:**
-
-**Linux/macOS:**
-```bash
-chmod +x /path/to/pikafish
-
-# 验证权限
-ls -la /path/to/pikafish
-# 应该显示: -rwxr-xr-x
-```
-
-**Windows:**
-1. 右键点击 `pikafish.exe`
-2. 选择"属性"
-3. 切换到"安全"选项卡
-4. 点击"编辑"按钮
-5. 选择你的用户
-6. 勾选"完全控制"
-7. 点击"应用"
-
-**使用管理员权限运行:**
-```bash
-# Windows
-右键点击命令提示符 → 以管理员身份运行
-
-# Linux/macOS
-sudo python main.py
-```
-
-#### 问题1.2: 找不到引擎文件
-
-**错误信息:**
-```
-FileNotFoundError: 找不到Pikafish引擎: /path/to/pikafish
-```
-
-**解决方法:**
-
-1. **检查文件是否存在**
-   ```bash
-   ls -la /path/to/pikafish
-   ```
-
-2. **使用绝对路径**
-   ```python
-   # 在配置文件中
-   "engine_path": "/home/user/pikafish/pikafish"
-   ```
-
-3. **检查文件完整性**
-   ```bash
-   # 文件应该大于1KB
-   du -h /path/to/pikafish
-   
-   # 检查是否可执行
-   file /path/to/pikafish
-   ```
-
-4. **重新下载引擎**
-   - 从 [Pikafish官方仓库](https://github.com/official-pikafish/Pikafish/releases) 下载
-   - 确保下载对应平台的版本
-
-#### 问题1.3: 引擎启动失败
-
-**错误信息:**
-```
-RuntimeError: 引擎启动失败
-```
-
-**解决方法:**
-
-1. **检查引擎版本**
-   ```bash
-   # 测试引擎是否能独立运行
-   ./pikafish
-   
-   # 应该看到UCI协议输出
-   ```
-
-2. **检查依赖库**
-   ```bash
-   # Linux
-   ldd /path/to/pikafish
-   
-   # macOS
-   otool -L /path/to/pikafish
-   ```
-
-3. **查看详细错误**
-   ```bash
-   # 运行测试脚本获取详细信息
-   python tests/test_pikafish.py /path/to/pikafish
-   ```
-
-### 2. 棋盘检测问题
-
-#### 问题2.1: 找不到检测器模块
-
-**错误信息:**
-```
-ImportError: cannot import name 'ChessboardDetector'
-```
-
-**解决方法:**
-
-1. **检查检测器子模块**
-   ```bash
-   # 确保子模块已初始化
-   git submodule update --init --recursive
-   
-   # 检查目录是否存在
-   ls -la Chinese_Chess_Recognition/core/
-   ```
-
-2. **检查导入路径**
-   ```python
-   # 正确的导入方式（项目已在 src/chess_analyzer.py 中处理）
-   from core.chessboard_detector import ChessboardDetector
-   ```
-
-3. **确认子模块地址**
-   ```bash
-   # 子模块地址定义在 .gitmodules
-   cat .gitmodules
-   ```
-
-#### 问题2.2: 模型文件不存在
-
-**错误信息:**
-```
-FileNotFoundError: 找不到模型文件: onnx/pose/4_v6-0301.onnx
-```
-
-**解决方法:**
-
-1. **检查模型文件路径**
-   ```bash
-   ls -la onnx/pose/
-   ls -la onnx/layout_recognition/
-   ```
-
-2. **从子模块获取模型**
-   ```bash
-   # 子模块中同样带有模型，可复制到项目 onnx/ 目录
-   cp Chinese_Chess_Recognition/onnx/pose/4_v6-0301.onnx onnx/pose/
-   cp Chinese_Chess_Recognition/onnx/layout_recognition/nano_v3-0319.onnx onnx/layout_recognition/
-   ```
-
-3. **修改模型路径配置**
-   ```json
-   {
-     "pose_model_path": "Chinese_Chess_Recognition/onnx/pose/4_v6-0301.onnx",
-     "classifier_model_path": "Chinese_Chess_Recognition/onnx/layout_recognition/nano_v3-0319.onnx"
-   }
-   ```
-
-#### 问题2.3: 检测不准确
-
-**问题描述:**
-- 棋子识别错误
-- 位置不准确
-- 置信度低
-
-**解决方法:**
-
-1. **调整图像质量**
-   - 确保棋盘清晰可见
-   - 调整摄像头角度和距离
-   - 改善光照条件
-
-2. **调整检测参数**
-   ```python
-   # 增加思考时间
-   "think_time": 3000,
-   
-   # 调整检测阈值（如果有）
-   DETECTOR_IS_INVERTED = True  # 或 False
-   ```
-
-3. **使用测试脚本验证**
-   ```bash
-   python tests/test_debug.py
-   ```
-
-### 3. Web界面问题
-
-#### 问题3.1: 无法访问Web界面
-
-**问题描述:**
-- 浏览器无法打开 http://localhost:5000
-- 页面加载失败
-
-**解决方法:**
-
-1. **检查服务是否启动**
-   ```bash
-   # 查看进程
-   ps aux | grep python
-   
-   # 查看端口占用
-   netstat -tlnp | grep 5000
-   ```
-
-2. **检查防火墙设置**
-   ```bash
-   # Linux
-   sudo ufw status
-   sudo ufw allow 5000
-   
-   # Windows
-   控制面板 → Windows防火墙 → 允许应用通过防火墙
-   ```
-
-3. **更换端口**
-   ```bash
-   python main.py --port 8080
-   ```
-
-4. **查看日志**
-   ```bash
-   tail -f logs/xiangqi_analyzer.log
-   ```
-
-#### 问题3.2: 登录失败
-
-**问题描述:**
-- 无法登录系统
-- 提示用户名或密码错误
-
-**解决方法:**
-
-1. **检查用户配置**
-   ```python
-   # 在 web/app.py 中查看默认用户
-   # 默认用户: admin/admin123, guest/guest123
-   ```
-
-2. **重置用户**
-   ```python
-   # 在 web/app.py 中添加用户
-   user_manager.add_user('newuser', 'newpass')
-   ```
-
-3. **禁用认证（开发环境）**
-   ```python
-   # 临时注释掉登录检查
-   # if not user_manager.is_logged_in(session_id):
-   #     return redirect(url_for('login'))
-   ```
-
-#### 问题3.3: WebSocket连接失败
-
-**问题描述:**
-- 实时更新不工作
-- 浏览器控制台显示WebSocket错误
-
-**解决方法:**
-
-1. **检查浏览器兼容性**
-   - 使用Chrome、Firefox、Edge等现代浏览器
-   - 确保浏览器支持WebSocket
-
-2. **检查网络**
-   - 清除浏览器缓存
-   - 禁用浏览器插件
-   - 检查代理设置
-
-3. **查看日志**
-   ```bash
-   tail -f logs/xiangqi_analyzer.log | grep -i websocket
-   ```
-
-### 4. 流处理问题
-
-#### 问题4.1: RTMP流连接失败
-
-**问题描述:**
-- 无法连接到RTMP流
-- 画面不显示
-
-**解决方法:**
-
-1. **检查流地址**
-   ```bash
-   # 确保流地址格式正确
-   rtmp://localhost/live/stream
-   ```
-
-2. **测试流是否可用**
-   ```bash
-   # 使用ffplay测试
-   ffplay rtmp://localhost/live/stream
-   ```
-
-3. **检查网络连接**
-   ```bash
-   ping localhost
-   telnet localhost 1935
-   ```
-
-4. **查看流处理器日志**
-   ```python
-   # 在 src/stream_processor.py 中启用详细日志
-   logger.setLevel(logging.DEBUG)
-   ```
-
-#### 问题4.2: 模拟器截图失败
-
-**问题描述:**
-- 找不到模拟器窗口
-- 截图为空
-
-**解决方法:**
-
-1. **检查模拟器是否运行**
-   ```bash
-   # Linux/macOS
-   ps aux | grep -i mumu
-   
-   # Windows
-   tasklist | findstr /i mumu
-   ```
-
-2. **检查窗口标题**
-   ```python
-   # 在 src/stream_processor.py 中添加调试代码
-   windows = screen_capture.list_windows()
-   for w in windows:
-       print(w)
-   ```
-
-3. **使用屏幕截图模式**
-   ```json
-   {
-     "source_type": "screen",
-     "source_value": "100,100,800,600"
-   }
-   ```
-
-### 5. 内网穿透问题
-
-#### 问题5.1: ngrok连接失败
-
-**问题描述:**
-- 无法获取公网URL
-- 连接超时
-
-**解决方法:**
-
-1. **检查ngrok安装**
-   ```bash
-   ngrok version
-   ```
-
-2. **检查认证令牌**
-   ```bash
-   ngrok authtoken YOUR_TOKEN
-   ```
-
-3. **更换区域**
-   ```bash
-   # 在 tunnel_service.py 中修改区域
-   region = 'us'  # 或 'eu', 'ap', 'au', 'sa', 'jp', 'in'
-   ```
-
-4. **查看ngrok日志**
-   ```bash
-   ngrok http 5000 --log=stdout
-   ```
-
-#### 问题5.2: frp连接失败
-
-**问题描述:**
-- 无法连接到frp服务器
-- 认证失败
-
-**解决方法:**
-
-1. **检查服务器地址和端口**
-   ```json
-   {
-     "server_addr": "your-server.com",
-     "server_port": 7000
-   }
-   ```
-
-2. **检查访问令牌**
-   ```json
-   {
-     "token": "your-secret-token"
-   }
-   ```
-
-3. **测试服务器连接**
-   ```bash
-   telnet your-server.com 7000
-   ```
-
-## 🔧 高级调试技巧
-
-### 1. 启用详细日志
-
-```python
-# 在 main.py 中设置日志级别为DEBUG
-logging.basicConfig(level=logging.DEBUG)
-
-# 或者在命令行中
-python main.py --debug
-```
-
-### 2. 使用调试器
+ONNX Runtime 已从基础依赖中拆出，需要单独安装：
 
 ```bash
-# 使用pdb调试
-python -m pdb main.py
-
-# 使用ipdb调试（更友好）
-pip install ipdb
-python -m ipdb main.py
+pip install -r requirements-onnxruntime-cpu.txt    # CPU
+# 或
+pip install -r requirements-onnxruntime-gpu.txt    # GPU
 ```
 
-### 3. 添加断点
+### 问题3: 装 GPU 版后 `import onnxruntime` 报 DLL/模块错误
 
-```python
-# 在代码中添加断点
-import pdb; pdb.set_trace()
-
-# 或者使用ipdb
-import ipdb; ipdb.set_trace()
-```
-
-### 4. 性能分析
+CPU 版与 GPU 版共用 `onnxruntime` 模块，不能共存：
 
 ```bash
-# 使用cProfile分析性能
-python -m cProfile -o profile.out main.py
-python -c "import pstats; pstats.Stats('profile.out').sort_stats('cumulative').print_stats(10)"
+pip uninstall -y onnxruntime onnxruntime-gpu
+pip install -r requirements-onnxruntime-gpu.txt
 ```
 
-### 5. 内存分析
+并确认 CUDA 13 运行库已安装（README「GPU 加速（可选）」有已验证的版本组合）。
+
+## ⚙️ 引擎问题
+
+### 问题4: 找不到引擎 / 引擎启动失败
+
+- 确认 `engine_path` 指向真实可执行文件；
+- 确认 `pikafish.nnue` 与可执行文件在同一目录（官方 release 压缩包内同时提供）；
+- Linux/macOS 需要 `chmod +x`；
+- Windows 右键 → 属性 → 安全 → 完全控制。
+
+官方 release 验证版本：**2026-09-06**。
+
+### 问题5: 引擎输出 `No such option: UCI_Variant`
+
+Pikafish 是纯象棋引擎，没有该选项。程序仍会发送以兼容其他引擎，该提示无害，可以忽略。
+
+### 问题6: 引擎分析返回 `engine_crashed`
+
+常见原因是局面本身不合法（例如“将帅可被吃”），Pikafish 2026 会直接拒绝并退出：
+
+```text
+info string CRITICAL ERROR: ... Reason: Unsupported position. King can be captured.
+```
+
+多见于摆拍图或识别错误（遮挡、颜色误判）。可换一张清晰的真实对局图验证。
+
+## 🎯 检测问题
+
+### 问题7: 日志提示“使用模拟检测器”
+
+`Chinese_Chess_Recognition` 子模块未初始化，或导入失败：
 
 ```bash
-# 使用memory_profiler
-pip install memory_profiler
-python -m memory_profiler main.py
+git submodule update --init --recursive
 ```
 
-## 📋 调试清单
+验证基准提交为 `53201d6`。
 
-### 问题排查步骤
+### 问题8: 模型加载失败
 
-1. **查看错误信息**
-   - 仔细阅读错误消息
-   - 查看日志文件
-   - 运行测试脚本
+确认以下文件存在：
 
-2. **检查基础环境**
-   - Python版本
-   - 依赖包是否安装
-   - 文件路径是否正确
+- `onnx/pose/4_v6-0301.onnx`
+- `onnx/layout_recognition/nano_v3-0319.onnx`
 
-3. **检查配置文件**
-   - 配置文件格式是否正确
-   - 路径是否正确
-   - 参数是否合理
+子模块内也带一份 `onnx/`，可在设置页把路径指过去。
 
-4. **检查权限**
-   - 文件执行权限
-   - 目录读写权限
-   - 网络访问权限
+### 问题9: 结果里有 `x`（遮挡）
 
-5. **检查网络连接**
-   - 端口是否开放
-   - 防火墙设置
-   - 代理配置
+被手/棋子遮挡的交叉点无法识别，FEN 中按空位处理，结果字段 `occluded_count` 会给出数量。
+遮挡越多，FEN 与推荐走法越不可靠。
 
-6. **查看系统资源**
-   - CPU使用率
-   - 内存占用
-   - 磁盘空间
+### 问题10: 棋盘朝向反了
 
-### 提交Issue前
+设置页「我方执子」决定显示朝向：执红红方在下，执黑黑方在下。
+`auto` 时按红帅位置推断。FEN 与箭头坐标会随显示朝向一起换算。
 
-- [ ] 已查看日志文件
-- [ ] 已运行测试脚本
-- [ ] 已搜索已知问题
-- [ ] 已尝试基本解决方法
-- [ ] 已提供环境信息（OS, Python版本, 错误日志）
+## ⚡ GPU 问题
 
-## 📞 获取帮助
+### 问题11: `get_available_providers()` 有 CUDA，但会话只用 CPU
 
-### 自助资源
+这正是 `preload_dlls()` 的用途。程序已在创建会话前自动调用；手工验证：
 
-1. **查看日志**
-   ```bash
-   tail -f logs/xiangqi_analyzer.log
-   ```
+```bash
+python -c "import onnxruntime as ort; ort.preload_dlls(); s=ort.InferenceSession('onnx/pose/4_v6-0301.onnx', providers=['CUDAExecutionProvider','CPUExecutionProvider']); print(s.get_providers())"
+```
 
-2. **运行测试**
-   ```bash
-   python test_system.py
-   python tests/test_pikafish.py /path/to/pikafish
-   python tests/test_debug.py
-   ```
+### 问题12: 启动日志显示回退 CPU
 
-3. **查看文档**
-   - README.md
-   - USER_GUIDE.md
-   - TROUBLESHOOTING.md（本文件）
+日志会打印原因，例如：
 
-### 提交Issue
+```text
+请求 providers: ['CUDAExecutionProvider', 'CPUExecutionProvider'] -> 实际使用: ['CPUExecutionProvider']
+以下 provider 不可用，已回退: ['CUDAExecutionProvider']
+```
 
-在提交Issue前，请提供以下信息：
+依次检查：显卡驱动、`onnxruntime-gpu` 版本与 CUDA 版本是否匹配、`onnx_providers` 配置。
 
-1. **环境信息**
-   - 操作系统及版本
-   - Python版本
-   - 相关依赖版本
+### 问题13: GPU 第一次分析特别慢
 
-2. **错误信息**
-   - 完整的错误消息
-   - 日志文件内容
-   - 复现步骤
+首次推理需要编译 CUDA kernel、分配显存，本机实测约 **11.9 秒**，之后约 0.03 秒。
+启动后先分析一张图预热即可。
 
-3. **已尝试的解决方法**
-   - 已尝试的解决步骤
-   - 测试结果
+## 🌐 Web 问题
 
-## 🎉 总结
+### 问题14: 无法访问页面
 
-遇到问题时：
+- 确认服务已启动，端口未被占用（`python main.py --port 8080`）；
+- 防火墙放行；`--host 0.0.0.0` 时用本机 IP 访问。
 
-1. **不要慌** - 大部分问题都有解决方法
-2. **看日志** - 日志通常会告诉你问题所在
-3. **查文档** - 本文档包含大多数常见问题
-4. **做测试** - 使用测试脚本快速定位问题
-5. **提Issue** - 如果解决不了，提交详细的Issue
+### 问题15: 实时分析一直“画面无变化，跳过”
 
-记住：
-- 详细的信息有助于快速解决问题
-- 日志是调试的最好朋友
-- 测试脚本可以节省大量时间
+说明画面确实没有变化，或阈值过高：
+
+- 检查信号源是否在更新；
+- 设置页调低「画面变化阈值」，或设为 0 关闭跳过。
+
+### 问题16: 没有箭头
+
+箭头依赖引擎给出的最佳走法。以下情况不会画箭头：
+
+- 引擎分析失败（局面不合法、引擎未配置）；
+- 画面中未识别到完整棋盘；
+- 走法坐标越界（识别错误）。
+
+## 🔓 内网穿透问题
+
+- ngrok：确认已安装 `ngrok` 并配置 AuthToken；
+- frp：确认已安装 `frpc` 并填写服务器地址；
+- 免费版 ngrok 有并发/时长限制，失败时查看日志中的客户端输出。
+
+## 📖 记谱问题
+
+- 同列 4-5 个兵/卒使用「前/二/三/后」「前/二/三/四/后」；
+- 超过 5 个同列同种棋子属于规则外，程序会显示坐标并附原因，不猜测；
+- 吃子不加「吃」、不追加「将/绝杀」，与《象棋竞赛规则》一致。

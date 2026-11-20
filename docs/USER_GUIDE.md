@@ -2,356 +2,119 @@
 
 ## 📚 目录
 
-1. [快速上手](#快速上手)
-2. [详细配置](#详细配置)
-3. [使用场景](#使用场景)
-4. [高级功能](#高级功能)
-5. [故障排除](#故障排除)
+1. [安装与启动](#安装与启动)
+2. [配置说明](#配置说明)
+3. [输入源配置](#输入源配置)
+4. [Web 界面使用](#web-界面使用)
+5. [中文记谱与箭头](#中文记谱与箭头)
+6. [GPU 加速](#gpu-加速)
+7. [内网穿透](#内网穿透)
+8. [测试与日志](#测试与日志)
 
-## 🚀 快速上手
+## 🚀 安装与启动
 
-### 场景1: 分析单张图片
-
-1. 启动服务: `python main.py`
-2. 打开浏览器访问 http://localhost:5000
-3. 登录系统 (admin/admin123)
-4. 在"上传图片分析"区域选择图片
-5. 点击"分析图片"按钮
-6. 查看分析结果和推荐走法
-
-### 场景2: 实时分析模拟器
-
-1. 启动MuMu模拟器，打开JJ象棋
-2. 启动分析器服务
-3. 访问Web界面并登录
-4. 进入"设置"页面
-5. 配置:
-   - 信号源类型: "模拟器"
-   - 模拟器名称: "MuMu"
-   - 引擎路径: 你的pikafish.exe路径
-6. 保存设置并返回主页
-7. 点击"开始分析"按钮
-8. 查看实时分析结果
-
-### 场景3: RTMP流分析
-
-1. 设置RTMP推流（如使用OBS）
-2. 在设置中选择信号源类型: "RTMP/RTSP流"
-3. 输入流地址，如: `rtmp://localhost/live/chess`
-4. 开始推流
-5. 启动分析
-6. 实时查看分析结果
-
-## ⚙️ 详细配置
-
-### Pikafish引擎配置
-
-**Windows示例:**
-```
-C:\Users\YourName\Downloads\pikafish-windows-x86_64.exe
-```
-
-**Linux示例:**
-```
-/usr/local/bin/pikafish
-```
-
-**macOS示例:**
-```
-/Applications/pikafish.app/Contents/MacOS/pikafish
-```
-
-### 信号源配置
-
-#### 模拟器配置
-
-支持的模拟器:
-- MuMu模拟器 (默认)
-- 雷电模拟器
-- BlueStacks
-- Nox夜神模拟器
-- LDPlayer
-
-**配置示例:**
-```json
-{
-  "source_type": "emulator",
-  "source_value": "MuMu"
-}
-```
-
-#### RTMP流配置
-
-**OBS推流设置:**
-1. 设置 → 推流
-2. 服务: 自定义
-3. 服务器: `rtmp://localhost/live`
-4. 串流密钥: `chess`
-
-**分析器配置:**
-```json
-{
-  "source_type": "stream",
-  "source_value": "rtmp://localhost/live/chess"
-}
-```
-
-#### 屏幕截图配置
-
-**区域格式:** `x,y,width,height`
-
-**示例:**
-```json
-{
-  "source_type": "screen",
-  "source_value": "100,100,800,600"
-}
-```
-
-### 分析参数配置
-
-#### 思考时间
-- 范围: 500ms - 10000ms
-- 推荐: 2000ms
-- 说明: 思考时间越长，推荐走法越准确，但响应越慢
-
-#### 分析间隔
-- 范围: 1秒 - 10秒
-- 推荐: 3秒
-- 说明: 两次分析之间的时间间隔，避免过于频繁分析
-
-## 🎯 使用场景
-
-### 在线对局辅助
-
-适合在以下平台使用:
-- JJ象棋
-- QQ象棋
-- 天天象棋
-- 其他在线象棋平台
-
-**使用方法:**
-1. 打开对局
-2. 启动分析器
-3. 选择模拟器或屏幕截图模式
-4. 查看AI推荐走法
-
-### 棋谱分析
-
-**批量分析:**
-1. 准备棋谱图片
-2. 使用图片文件模式
-3. 逐一上传分析
-4. 记录推荐走法
-
-### 教学演示
-
-**实时演示:**
-1. 使用RTMP流模式
-2. 投影棋盘到屏幕
-3. 实时显示分析结果
-4. 讲解AI的思路
-
-## 🔧 高级功能
-
-### 内网穿透配置
-
-#### ngrok配置
-
-1. 注册 [ngrok官网](https://ngrok.com/)
-2. 获取AuthToken
-3. 在设置中配置:
-   ```json
-   {
-     "enable_tunnel": true,
-     "tunnel_type": "ngrok",
-     "tunnel_config": {
-       "auth_token": "your_token_here",
-       "region": "ap"
-     }
-   }
-   ```
-
-4. 启动服务后会显示公网URL
-5. 其他人可以通过该URL访问
-
-#### frp配置
-
-1. 搭建frp服务器
-2. 配置frp客户端
-3. 在设置中配置:
-   ```json
-   {
-     "enable_tunnel": true,
-     "tunnel_type": "frp",
-     "tunnel_config": {
-       "server_addr": "your_server.com",
-       "server_port": 7000,
-       "token": "your_token",
-       "subdomain": "chess"
-     }
-   }
-   ```
-
-### 用户管理
-
-**添加用户:**
-
-当前版本支持最多5个用户同时在线。
-
-默认用户:
-- admin / admin123 (管理员)
-- guest / guest123 (访客)
-
-**用户权限:**
-- 可以查看实时分析结果
-- 可以修改配置
-- 可以上传图片分析
-
-### 命令行启动
-
-**基本启动:**
 ```bash
+git submodule update --init --recursive
+pip install -r requirements.txt
+pip install -r requirements-onnxruntime-cpu.txt   # 或 -gpu.txt
 python main.py
 ```
 
-**指定配置:**
+访问 <http://localhost:5000>，默认账号 `admin / admin123`、`guest / guest123`。
+Pikafish 引擎与模型的准备见 [QUICK_START.md](QUICK_START.md)。
+
+## ⚙️ 配置说明
+
+配置文件为 `config/config.json`，也可以直接在 Web 设置页修改，保存后写回同一文件。
+
+| 配置项 | 默认值 | 说明 |
+|---|---|---|
+| `engine_path` | 空 | Pikafish 可执行文件路径 |
+| `pose_model_path` | `onnx/pose/4_v6-0301.onnx` | 姿态检测模型 |
+| `classifier_model_path` | `onnx/layout_recognition/nano_v3-0319.onnx` | 棋子分类模型 |
+| `source_type` | `file` | `file` / `stream` / `emulator` / `screen` |
+| `source_value` | 空 | 见「输入源配置」 |
+| `player_side` | `red` | 我方执子：`red` / `black` / `auto`，同时决定棋盘显示朝向 |
+| `think_time` | 2000 | 引擎思考时间（毫秒） |
+| `analysis_interval` | 3 | 实时分析间隔（秒） |
+| `frame_diff_threshold` | 3.0 | 画面变化阈值（灰度均方差），低于则跳过；0 不跳过 |
+| `max_users` | 5 | 账号数量与在线人数上限（1-20） |
+| `uci_options` | `Threads=物理核数, Hash=512` | 引擎启动时下发；`Hash` 单位 MB |
+| `onnx_providers` | `["CUDAExecutionProvider","CPUExecutionProvider"]` | 检测模型 provider，不可用时自动回退 CPU |
+| `enable_tunnel` | false | 是否启用内网穿透 |
+| `tunnel_type` | ngrok | `ngrok` / `frp` |
+| `tunnel_config` | `{}` | ngrok：`auth_token`、`region`；frp：`server_addr`、`server_port`、`token`、`subdomain` |
+
+### 命令行参数
+
 ```bash
-python main.py --config config/my_config.json
+python main.py --engine-path Pikafish/src/pikafish.exe \
+               --source-type emulator --source-value "MuMu" \
+               --no-browser --port 5000
 ```
 
-**指定引擎和信号源:**
+命令行参数的优先级高于配置文件。
+
+## 🎥 输入源配置
+
+| 类型 | `source_value` 示例 | 说明 |
+|---|---|---|
+| 图片文件 `file` | 空 | 在 Web 页面上传图片 |
+| 视频流 `stream` | `rtmp://localhost/live/chess` | OpenCV 打开 RTMP/RTSP 流 |
+| 模拟器 `emulator` | `MuMu` 或完整窗口标题 | 设置页可点「刷新窗口」选择 |
+| 屏幕 `screen` | `100,100,800,600` | `x,y,width,height`，留空为全屏；支持中文逗号 |
+
+## 🌐 Web 界面使用
+
+- **首页**：开始/停止分析、实时预览、棋盘分析、推荐走法、单图上传、批量分析
+- **设置页**：引擎与模型路径、信号源、我方执子、思考时间、分析间隔、画面变化阈值、
+  引擎线程数/哈希表、内网穿透、用户管理
+- **棋盘分析**：显示 FEN、行列坐标、朝向徽标、棋盘布局与走法箭头；朝向随「我方执子」变化
+- **用户管理**：在线人数、添加/删除用户（密码 PBKDF2 哈希存储，保存在 `config/users.json`）
+
+## 📖 中文记谱与箭头
+
+推荐走法会同时显示坐标与中文记谱，例如：
+
+| 坐标 | 中文记谱 | 说明 |
+|---|---|---|
+| `b0c2` | 马二进三 | 红方马从 b0 到 c2 |
+| `b2e2` | 炮二平五 | 红方炮平中 |
+| `h9g7` | 马8进7 | 黑方使用阿拉伯数字 |
+
+规则（按《象棋竞赛规则》）：
+
+- 红方用中文数字，黑方用阿拉伯数字；列号沿 `a`–`i` 编号 1–9
+- 车/炮/兵/卒/帅/将的进/退跟移动行数，马/相/仕跟目标列
+- 同列多个同种棋子：2 个用「前/后」，3 个用「前/中/后」，
+  4 个用「前/二/三/后」，5 个用「前/二/三/四/后」
+- 「前」= 更靠近对方底线的一枚（红黑各自视角）
+- 吃子不额外加「吃」，也不追加「将/绝杀」
+
+箭头：红方红色、黑方蓝色，头部长度 = 0.5 格、线宽 = 0.08 格，与走法长短、图片大小无关。
+无法记谱时（例如同列超过 5 个，规则之外）会显示坐标并给出原因。
+
+## ⚡ GPU 加速
+
+默认 CPU；NVIDIA 显卡可按 README 的「GPU 加速（可选）」切换 `onnxruntime-gpu`，
+实测单图检测从 0.216s 降到 0.028s。首次推理约 12 秒属于正常预热。
+
+## 🔓 内网穿透
+
+1. 设置页选择 ngrok 或 frp 并填写令牌/服务器信息
+2. 点击「保存配置」→「启动穿透」
+3. 页面显示公网 URL 后即可远程访问，点击「停止」关闭
+
+需要本机安装 `ngrok` 或 `frpc` 客户端。
+
+## 🧪 测试与日志
+
 ```bash
-python main.py --engine-path /path/to/pikafish --source-type emulator
+python test_system.py          # 系统完整性
+python -m pytest               # 108 个单元/接口用例
+python tests/test_pikafish.py <引擎路径>
+python tests/test_debug.py --interactive
 ```
 
-**启用内网穿透:**
-```bash
-python main.py --enable-tunnel --tunnel-token YOUR_TOKEN
-```
-
-**完整参数:**
-```bash
-python main.py \
-  --engine-path C:/pikafish/pikafish.exe \
-  --source-type emulator \
-  --source-value "MuMu" \
-  --enable-tunnel \
-  --tunnel-token your_token \
-  --port 8080 \
-  --host 0.0.0.0 \
-  --no-browser
-```
-
-## 🛠️ 故障排除
-
-### 问题1: 引擎无法启动
-
-**现象:** 提示"找不到Pikafish引擎"或"引擎启动失败"
-
-**解决:**
-1. 检查引擎文件是否存在
-2. 检查引擎路径是否正确
-3. 检查引擎是否有执行权限
-4. 尝试使用绝对路径
-
-### 问题2: 棋盘检测不准确
-
-**现象:** 棋子识别错误或位置不准确
-
-**解决:**
-1. 调整摄像头角度和距离
-2. 确保棋盘清晰可见
-3. 检查光照条件，避免反光
-4. 调整检测参数
-5. 确保模型文件完整
-
-### 问题3: 模拟器无法捕获
-
-**现象:** 提示"未找到模拟器窗口"
-
-**解决:**
-1. 确保模拟器已启动
-2. 检查模拟器窗口标题
-3. 尝试使用屏幕截图模式
-4. 在设置中手动指定窗口标题
-
-### 问题4: RTMP流连接失败
-
-**现象:** 提示"无法打开视频流"
-
-**解决:**
-1. 检查流地址是否正确
-2. 检查网络连接
-3. 确保推流服务已启动
-4. 检查防火墙设置
-
-### 问题5: 内网穿透失败
-
-**现象:** 无法通过公网URL访问
-
-**解决:**
-1. 检查认证令牌是否正确
-2. 检查网络连接
-3. 检查防火墙设置
-4. 查看服务提供商状态
-5. 尝试更换区域或服务器
-
-### 问题6: Web界面无法访问
-
-**现象:** 浏览器无法打开页面
-
-**解决:**
-1. 检查服务是否已启动
-2. 检查端口是否被占用
-3. 检查防火墙设置
-4. 尝试使用其他浏览器
-5. 清除浏览器缓存
-
-### 问题7: 分析结果不更新
-
-**现象:** 界面显示"等待分析结果"
-
-**解决:**
-1. 检查是否已点击"开始分析"
-2. 检查信号源是否正常
-3. 检查引擎是否正常运行
-4. 查看日志获取详细信息
-
-## 📊 性能优化
-
-### 提高分析速度
-
-1. **减少思考时间**: 从2000ms降低到1000ms
-2. **增大分析间隔**: 从3秒增加到5秒
-3. **使用GPU加速**: 如果支持的话
-
-### 提高准确性
-
-1. **增加思考时间**: 从2000ms增加到5000ms
-2. **提高图像质量**: 使用高清摄像头
-3. **优化光照**: 确保光线充足且均匀
-
-### 降低资源占用
-
-1. **减少分析频率**: 增大分析间隔
-2. **关闭预览**: 在设置中关闭实时预览
-3. **限制用户数量**: 减少同时在线用户数
-
-## 🔒 安全建议
-
-1. **修改默认密码**: 生产环境中务必修改默认密码
-2. **限制访问**: 使用内网穿透时注意访问控制
-3. **定期更新**: 及时更新软件和依赖
-4. **日志审计**: 定期检查日志文件
-5. **备份配置**: 定期备份配置文件
-
-## 📞 获取帮助
-
-- 查看日志文件: `logs/xiangqi_analyzer.log`
-- 提交Issue到GitHub
-- 查阅完整文档: `README.md`
-
----
-
-**祝你使用愉快！**
+日志位于 `logs/xiangqi_analyzer.log`，实时分析跳过的记录形如
+`画面无变化，跳过（差异 0.00 < 阈值 3）`。
