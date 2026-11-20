@@ -7,7 +7,9 @@
 - 红方用中文数字（一二三…），黑方用阿拉伯数字（123…）
 - 列号沿 FEN/UCI 坐标统一从 a 到 i 编号 1-9（红黑同向；等价于“各自从右手边数起”）
 - 车/炮/兵/卒/帅/将的进/退后面跟移动的行数；马/相/仕的进/退后面跟目标列
-- 同一列有两个同种棋子时，用“前/后”代替列号，前指更靠近对方底线的一枚
+- 同一列有多个同种棋子时按《象棋竞赛规则》用位置标记代替列号：
+  2 个用 前/后，3 个用 前/中/后，4 个用 前/二/三/后，5 个用 前/二/三/四/后；
+  前 = 更靠近对方底线的一枚（红黑各自从自己的视角判断）
 """
 
 from typing import Dict, List, Optional
@@ -24,6 +26,14 @@ PIECE_NAMES = {
 
 # 进/退后面跟“目标列”的棋子（其余跟移动行数）
 FILE_SUFFIX_PIECES = set('NBAnba')
+
+# 同一列多个同种棋子时的位置标记（按“从前到后”排序，前 = 更靠近对方底线）
+SAME_FILE_LABELS = {
+    2: ['前', '后'],
+    3: ['前', '中', '后'],
+    4: ['前', '二', '三', '后'],
+    5: ['前', '二', '三', '四', '后'],
+}
 
 RED_PIECE_SYMBOLS = set('KABNRCP')
 BLACK_PIECE_SYMBOLS = set('kabnrcp')
@@ -103,22 +113,23 @@ def move_to_chinese(board: List[List[str]], move: str,
 
     is_red = side == 'red'
 
-    # 同一列上的同种棋子，用于前/后
+    # 同一列上的同种棋子：按《象棋竞赛规则》用 前/后、前/中/后、前/二/三/后 等表示
     same_file_rows = [row for row in range(BOARD_ROWS)
                       if board[row][from_col] == piece]
 
-    if len(same_file_rows) > 2:
-        return {'ok': False, 'text': None, 'fallback': move,
-                'error': f'同一列有 {len(same_file_rows)} 个同种棋子，前/中/后规则待确认'}
+    # 前 = 更靠近对方底线的一枚：红方取行号最小，黑方取行号最大
+    front_first_rows = sorted(same_file_rows, reverse=(side == 'black'))
+    labels = SAME_FILE_LABELS.get(len(front_first_rows))
 
-    if len(same_file_rows) == 2:
-        # 前 = 更靠近对方底线的一枚；记谱写作“前车进一”
-        front_row = min(same_file_rows) if is_red else max(same_file_rows)
-        prefix = '前' if from_row == front_row else '后'
-        head = prefix + _piece_name(piece)
+    if labels is None and len(front_first_rows) > 5:
+        return {'ok': False, 'text': None, 'fallback': move,
+                'error': f'同一列有 {len(front_first_rows)} 个同种棋子，超出规则范围'}
+
+    if labels:
+        label = labels[front_first_rows.index(from_row)]
+        head = label + _piece_name(piece)
     else:
-        prefix = number_text(file_number(from_col), is_red)
-        head = _piece_name(piece) + prefix
+        head = _piece_name(piece) + number_text(file_number(from_col), is_red)
 
     if to_row == from_row:
         action = '平'

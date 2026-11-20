@@ -113,12 +113,81 @@ def test_retreat_notation():
     assert result['ok'] and result['text'] == '炮二退一'
 
 
-def test_three_same_file_pieces_is_ambiguous():
-    """同列三个同种棋子时明确返回不支持，而不是猜"""
+def test_three_same_file_pawns_use_front_middle_back():
+    """同列 3 个兵使用 前/中/后"""
     board = board_with((4, 4, 'P'), (5, 4, 'P'), (6, 4, 'P'))
+
+    front = move_to_chinese(board, 'e5e6')    # 行4 -> 行3
+    middle = move_to_chinese(board, 'e4e5')   # 行5 -> 行4
+    back = move_to_chinese(board, 'e3e4')     # 行6 -> 行5
+
+    assert front['ok'] and front['text'] == '前兵进一'
+    assert middle['ok'] and middle['text'] == '中兵进一'
+    assert back['ok'] and back['text'] == '后兵进一'
+
+
+def test_four_same_file_pawns_use_front_two_three_back():
+    """同列 4 个兵使用 前/二/三/后"""
+    board = board_with((3, 4, 'P'), (4, 4, 'P'), (5, 4, 'P'), (6, 4, 'P'))
+
+    labels = {
+        'e6e7': '前兵进一',   # 行3
+        'e5e6': '二兵进一',   # 行4
+        'e4e5': '三兵进一',   # 行5
+        'e3e4': '后兵进一',   # 行6
+    }
+    for move, expected in labels.items():
+        result = move_to_chinese(board, move)
+        assert result['ok'] and result['text'] == expected, (move, result)
+
+
+def test_five_same_file_pawns_use_front_two_three_four_back():
+    """同列 5 个兵使用 前/二/三/四/后"""
+    board = board_with((2, 4, 'P'), (3, 4, 'P'), (4, 4, 'P'),
+                       (5, 4, 'P'), (6, 4, 'P'))
+
+    labels = {
+        'e7e8': '前兵进一',   # 行2
+        'e6e7': '二兵进一',   # 行3
+        'e5e6': '三兵进一',   # 行4
+        'e4e5': '四兵进一',   # 行5
+        'e3e4': '后兵进一',   # 行6
+    }
+    for move, expected in labels.items():
+        result = move_to_chinese(board, move)
+        assert result['ok'] and result['text'] == expected, (move, result)
+
+
+def test_black_pawns_front_is_closest_to_red_side():
+    """黑方 前 = 更靠近红方底线的一枚（行号更大）"""
+    board = board_with((1, 4, 'p'), (2, 4, 'p'), (3, 4, 'p'))
+
+    front = move_to_chinese(board, 'e6e5')    # 行3 -> 行4，最靠前
+    middle = move_to_chinese(board, 'e7e6')   # 行2 -> 行3
+    back = move_to_chinese(board, 'e8e7')     # 行1 -> 行2
+
+    assert front['ok'] and front['text'] == '前卒进1'
+    assert middle['ok'] and middle['text'] == '中卒进1'
+    assert back['ok'] and back['text'] == '后卒进1'
+
+
+def test_black_four_pawns_labels():
+    """黑方 4 个卒同样使用 前/二/三/后"""
+    board = board_with((1, 4, 'p'), (2, 4, 'p'), (3, 4, 'p'), (4, 4, 'p'))
+
+    assert move_to_chinese(board, 'e5e4')['text'] == '前卒进1'   # 行4
+    assert move_to_chinese(board, 'e6e5')['text'] == '二卒进1'   # 行3
+    assert move_to_chinese(board, 'e7e6')['text'] == '三卒进1'   # 行2
+    assert move_to_chinese(board, 'e8e7')['text'] == '后卒进1'   # 行1
+
+
+def test_six_same_file_pieces_is_out_of_rules():
+    """同列超过 5 个（规则之外）明确返回错误"""
+    board = board_with((1, 4, 'P'), (2, 4, 'P'), (3, 4, 'P'),
+                       (4, 4, 'P'), (5, 4, 'P'), (6, 4, 'P'))
     result = move_to_chinese(board, 'e5e6')
     assert not result['ok']
-    assert '前/中/后' in result['error']
+    assert '超出' in result['error']
 
 
 def test_empty_origin_is_reported():
