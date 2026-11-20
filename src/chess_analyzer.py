@@ -16,7 +16,8 @@ import logging
 from datetime import datetime
 from .chess_validator import ChessboardValidator, CATEGORY_MAP, CATEGORY_MAP_REVERSE
 from .board_view import build_board_view
-from .board_render import board_point, to_original
+from .board_render import (board_cell_size, board_point, original_cell_size,
+                           to_original)
 from .xiangqi_notation import move_to_chinese, square_to_rowcol
 
 # 配置日志
@@ -659,7 +660,12 @@ class XiangqiAnalyzer:
                 'from_square': move[:2],
                 'to_square': move[2:4],
                 'side': side,
-                'board': {'from': start, 'to': end, 'size': board_size},
+                'board': {
+                    'from': start,
+                    'to': end,
+                    'size': board_size,
+                    'cell': board_cell_size(corners)
+                },
                 'original': None
             }
 
@@ -670,7 +676,9 @@ class XiangqiAnalyzer:
                 arrow['original'] = {
                     'from': original[0],
                     'to': original[1],
-                    'size': [width, height]
+                    'size': [width, height],
+                    # 透视下原图格子大小随位置变化，这里取起点附近的一格
+                    'cell': original_cell_size(keypoints, corners, from_row, from_col) or 40.0
                 }
 
             return arrow

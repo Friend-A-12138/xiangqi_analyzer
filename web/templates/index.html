@@ -369,20 +369,50 @@ function drawBoardArrow(arrow) {
 
     const color = arrow.side === 'black' ? '#1f4fd8' : '#d9534f';
 
+    // 与后端一致：箭头尺寸按格子比例，不随图片尺寸或走法距离变化
+    const cell = fromRect.width || 40;
+    const strokeWidth = Math.max(2, cell * 0.08);
+    const outlineWidth = strokeWidth + Math.max(1, cell * 0.04);
+    const headLength = cell * 0.5;
+    const headHalf = cell * 0.28;
+    const startRadius = Math.max(2, cell * 0.12);
+
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const distance = Math.hypot(dx, dy);
+    if (distance < 0.01) {
+        return;
+    }
+
+    const ux = dx / distance;
+    const uy = dy / distance;
+    const headBaseX = x2 - ux * Math.min(headLength, distance * 0.8);
+    const headBaseY = y2 - uy * Math.min(headLength, distance * 0.8);
+    const px = -uy;
+    const py = ux;
+
     layer.setAttribute('width', wrapRect.width);
     layer.setAttribute('height', wrapRect.height);
     layer.setAttribute('viewBox', '0 0 ' + wrapRect.width + ' ' + wrapRect.height);
 
-    let svg = '<defs><marker id="board-arrow-head" markerWidth="10" markerHeight="8" ' +
-              'refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 Z" fill="' +
-              color + '"/></marker></defs>';
-    svg += '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '"' +
-           ' stroke="#ffffff" stroke-width="7" stroke-linecap="round" opacity="0.85"/>';
-    svg += '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '"' +
-           ' stroke="' + color + '" stroke-width="4" stroke-linecap="round"' +
-           ' marker-end="url(#board-arrow-head)"/>';
-    svg += '<circle cx="' + x1 + '" cy="' + y1 + '" r="6" fill="#ffffff"/>';
-    svg += '<circle cx="' + x1 + '" cy="' + y1 + '" r="4" fill="' + color + '"/>';
+    let svg = '';
+    // 线条：白色描边 + 彩色主线
+    svg += '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + headBaseX + '" y2="' + headBaseY +
+           '" stroke="#ffffff" stroke-width="' + outlineWidth + '" stroke-linecap="round"/>';
+    svg += '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + headBaseX + '" y2="' + headBaseY +
+           '" stroke="' + color + '" stroke-width="' + strokeWidth + '" stroke-linecap="round"/>';
+    // 箭头：固定长度三角，白色描边后填充
+    const headPoints = [
+        [x2, y2],
+        [headBaseX + px * headHalf, headBaseY + py * headHalf],
+        [headBaseX - px * headHalf, headBaseY - py * headHalf]
+    ].map(point => point[0] + ',' + point[1]).join(' ');
+    svg += '<polygon points="' + headPoints + '" fill="#ffffff" stroke="#ffffff" stroke-width="' +
+           outlineWidth + '" stroke-linejoin="round"/>';
+    svg += '<polygon points="' + headPoints + '" fill="' + color + '"/>';
+    // 起点圆点
+    svg += '<circle cx="' + x1 + '" cy="' + y1 + '" r="' + (startRadius + 1.5) + '" fill="#ffffff"/>';
+    svg += '<circle cx="' + x1 + '" cy="' + y1 + '" r="' + startRadius + '" fill="' + color + '"/>';
 
     layer.innerHTML = svg;
 }
