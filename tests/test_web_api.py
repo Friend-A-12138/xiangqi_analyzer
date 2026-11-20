@@ -12,9 +12,6 @@ import web.app as webapp
 class FakeAnalyzer:
     """返回固定分析结果的分析器替身"""
 
-    def quit(self):
-        """模拟关闭引擎"""
-
     def analyze_image(self, image, think_time=2000):
         layout = [list('4k4')] + [list('.........') for _ in range(8)] + [list('4K4')]
         view = [['点'] * 9 for _ in range(10)]
@@ -268,86 +265,3 @@ def test_settings_page_renders_new_sections(client):
     assert 'player-side' in page
     assert 'tunnel-type' in page
     assert '启动穿透' in page
-
-
-def test_config_change_resets_analyzer_and_frame_state(client):
-    """修改配置后释放旧分析器、清空帧签名与箭头（下一次会按新执子重算）"""
-    test_client, _ = client
-
-    webapp.analyzer = FakeAnalyzer()
-    webapp.last_analyzed_signature = 'stale-signature'
-    webapp.latest_arrow = {'from_square': 'h2'}
-
-    response = test_client.post('/api/config', json={'player_side': 'black'})
-
-    assert response.status_code == 200
-    assert webapp.analysis_config['player_side'] == 'black'
-    assert webapp.analyzer is None
-    assert webapp.last_analyzed_signature is None
-    assert webapp.latest_arrow is None
-
-
-class FakeCapture:
-    """固定返回同一帧的采集器替身"""
-
-    def __init__(self, frame):
-        self.frame = frame
-
-    def capture_window(self, region=None):
-        return self.frame
-
-
-class _LoopStop(Exception):
-    """用于跳出分析循环"""
-
-
-def test_analysis_loop_rebuilds_analyzer_and_reanalyzes(client, monkeypatch):
-    """分析器被配置变更清空后，循环会按新配置重建并重新分析（即使画面没变）"""
-    test_client, _ = client
-    image = np.zeros((240, 320, 3), dtype=np.uint8)
-
-    class LoopAnalyzer(FakeAnalyzer):
-        def __init__(self):
-            self.calls = 0
-
-        def analyze_image(self, frame, think_time=2000):
-            self.calls += 1
-            return super().analyze_image(frame, think_time)
-
-    created = []
-
-    def fake_get_analyzer():
-        analyzer = LoopAnalyzer()
-        created.append(analyzer)
-        return analyzer, None
-
-    monkeypatch.setattr(webapp, 'get_analyzer', fake_get_analyzer)
-    monkeypatch.setattr(webapp, 'screen_capture', FakeCapture(image))
-    webapp.analysis_config['source_type'] = 'screen'
-    webapp.analysis_config['source_value'] = ''
-    webapp.analysis_config['think_time'] = 100
-    webapp.analysis_config['analysis_interval'] = 1
-    webapp.analysis_config['frame_diff_threshold'] = 3.0
-
-    webapp.analyzer = None
-    webapp.last_analyzed_signature = None
-    webapp.last_analyzer_error = None
-    webapp.running = True
-
-    events = []
-    monkeypatch.setattr(webapp.socketio, 'emit',
-                        lambda name, payload=None: events.append(name))
-
-    def stop_sleep(seconds):
-        raise _LoopStop()
-
-    monkeypatch.setattr(webapp.time, 'sleep', stop_sleep)
-
-    with pytest.raises(_LoopStop):
-        webapp.analysis_loop()
-
-    webapp.running = False
-
-    assert created, '分析器应被自动重建'
-    assert created[0].calls == 1
-    assert 'analysis_result' in events

@@ -60,7 +60,6 @@ latest_result = None
 latest_arrow = None
 last_analyzed_signature = None   # 上次真正做分析的帧签名
 last_preview_signature = None    # 上次推送预览的帧签名
-last_analyzer_error = None       # 上次分析器重建失败信息（用于去重日志）
 analysis_config = default_config()
 
 # 内网穿透管理器与实际监听端口（用于 ngrok/frp 转发）
@@ -644,7 +643,7 @@ def manage_tunnel():
 @app.route('/api/config', methods=['POST'])
 def update_config():
     """更新配置"""
-    global analyzer, latest_arrow, last_analyzed_signature
+    global analyzer
     
     session_id = session.get('session_id')
     if not session_id or not user_manager.is_logged_in(session_id):
@@ -659,16 +658,8 @@ def update_config():
         for problem in warnings:
             logger.warning(f"配置检查: {problem}")
         
-        # 配置变化后释放旧分析器（含引擎进程），并强制下一轮重新分析：
-        # 即使画面没变，也要用新的执子/朝向重新出结果
-        if analyzer is not None:
-            try:
-                analyzer.quit()
-            except Exception as e:
-                logger.warning(f"关闭旧分析器失败: {e}")
+        # 配置变化后丢弃旧分析器，下次分析时按新配置重建
         analyzer = None
-        latest_arrow = None
-        last_analyzed_signature = None
         
         logger.info(f"配置已更新: {analysis_config}")
         return jsonify({'success': True, 'config': analysis_config, 'warnings': warnings})
@@ -954,8 +945,7 @@ def capture_loop():
 
 def analysis_loop():
     """分析循环"""
-    global latest_result, latest_arrow, last_analyzed_signature, analyzer
-    global last_analyzer_error
+    global latest_result, latest_arrow, last_analyzed_signature
     
     while running:
         try:
@@ -972,37 +962,24 @@ def analysis_loop():
                     region=parse_region(analysis_config['source_value']))
             
             # 分析帧
-            if frame is not None:
-                # 设置变更后分析器会被释放，这里按最新配置自动重建，
-                # 避免分析静默停止、界面一直停留在旧执子的结果上
-                if analyzer is None:
-                    analyzer, error = get_analyzer()
-                    if error:
-                        if error != last_analyzer_error:
-                            logger.warning(f"等待分析器重建: {error}")
-                            last_analyzer_error = error
-                    else:
-                        last_analyzer_error = None
-                        last_analyzed_signature = None
+            if frame is not None and analyzer:
+                threshold = analysis_config.get('frame_diff_threshold', 3.0)
+                signature = frame_signature(frame)
+                changed, score = is_frame_changed(
+                    signature, last_analyzed_signature, threshold)
 
-                if analyzer is not None:
-                    threshold = analysis_config.get('frame_diff_threshold', 3.0)
-                    signature = frame_signature(frame)
-                    changed, score = is_frame_changed(
-                        signature, last_analyzed_signature, threshold)
+                if not changed:
+                    logger.info(f"画面无变化，跳过（差异 {score:.2f} < 阈值 {threshold:g}）")
+                else:
+                    result = analyzer.analyze_image(frame, analysis_config['think_time'])
 
-                    if not changed:
-                        logger.info(f"画面无变化，跳过（差异 {score:.2f} < 阈值 {threshold:g}）")
-                    else:
-                        result = analyzer.analyze_image(frame, analysis_config['think_time'])
+                    if result:
+                        last_analyzed_signature = signature
+                        latest_result = result
+                        latest_arrow = result.get('arrow')
 
-                        if result:
-                            last_analyzed_signature = signature
-                            latest_result = result
-                            latest_arrow = result.get('arrow')
-
-                            # 只推送文本信息，图像单独走 /api/result
-                            socketio.emit('analysis_result', serialize_result(result))
+                        # 只推送文本信息，图像单独走 /api/result
+                        socketio.emit('analysis_result', serialize_result(result))
             
             # 等待下一个分析周期
             time.sleep(analysis_config['analysis_interval'])
