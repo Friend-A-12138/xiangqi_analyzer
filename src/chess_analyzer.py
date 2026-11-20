@@ -15,6 +15,7 @@ import time
 import logging
 from datetime import datetime
 from .chess_validator import ChessboardValidator, CATEGORY_MAP, CATEGORY_MAP_REVERSE
+from .board_view import build_board_view
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -514,7 +515,11 @@ class XiangqiAnalyzer:
             # 解析布局
             pgn_rows = detect_result['cell_labels_str'].strip().split('\n')
             layout_pgn = [list(row.strip()) for row in pgn_rows]
-            fen = self._board_layout_to_fen(layout_pgn)
+
+            # 统一成 FEN 顺序（第0行黑方底线），再按我方执子生成显示方向
+            board = self._layout_to_board(layout_pgn)
+            fen = self._board_to_fen(board)
+            board_view = build_board_view(board, self.player_side)
             
             # 启动引擎并分析
             self._ensure_engine_started()
@@ -532,7 +537,13 @@ class XiangqiAnalyzer:
                 'timestamp': datetime.now().isoformat(),
                 'fen': fen,
                 'layout_pgn': layout_pgn,
-                'layout_2d': [[CATEGORY_MAP_REVERSE.get(cell, cell) for cell in row] for row in layout_pgn],
+                'board': board,
+                'layout_2d': [[CATEGORY_MAP_REVERSE.get(cell, cell) for cell in row]
+                              for row in board],
+                'view': [[CATEGORY_MAP_REVERSE.get(cell, cell) for cell in row]
+                         for row in board_view['view']],
+                'squares_view': board_view['squares'],
+                'orientation': board_view['orientation'],
                 'scores': detect_result['scores'],
                 'detect_time': detect_result.get('detect_time', 0.0),
                 'time_info': detect_result.get('time_info', ''),
@@ -564,27 +575,40 @@ class XiangqiAnalyzer:
             return 'b'
         return None
     
-    def _board_layout_to_fen(self, layout_pgn: List[List[str]]) -> str:
-        """将10x9的PGN布局转换为FEN格式字符串
-        
-        朝向按红帅位置自动判断：检测器输出通常红方在下方；若红帅出现在前两行，
-        说明视角相反，此时旋转180度（红黑身份不变）后生成 FEN。
-        被遮挡的 'x' 单元格无法识别，按空位处理（引擎不接受 'x'）。
+    def _layout_to_board(self, layout_pgn: List[List[str]]) -> List[List[str]]:
+        """把检测器布局统一成 FEN 顺序（第0行黑方底线）
+
+        Args:
+            layout_pgn: 检测器输出的 10x9 布局
+
+        Returns:
+            List[List[str]]: FEN 顺序的棋盘（红帅在下方）
         """
         red_at_bottom = any('K' in row for row in layout_pgn[-2:])
-        
-        layout = layout_pgn
-        if not red_at_bottom:
-            logger.info("检测到红帅在上方，按180度旋转后生成FEN")
-            layout = [row[::-1] for row in layout_pgn[::-1]]
-        
-        occluded = sum(row.count('x') for row in layout)
+
+        if red_at_bottom:
+            return [list(row) for row in layout_pgn]
+
+        logger.info("检测到红帅在上方，按180度旋转后生成FEN")
+        return [row[::-1] for row in layout_pgn[::-1]]
+
+    def _board_to_fen(self, board: List[List[str]]) -> str:
+        """把 FEN 顺序的棋盘转换为 FEN 字符串
+
+        被遮挡的 'x' 单元格无法识别，按空位处理（引擎不接受 'x'）。
+
+        Args:
+            board: FEN 顺序的 10x9 棋盘
+
+        Returns:
+            str: FEN 字符串
+        """
+        occluded = sum(row.count('x') for row in board)
         if occluded:
             logger.warning(f"有{occluded}个位置被遮挡（x），FEN中按空位处理")
-        
-        # 生成标准FEN
+
         fen_rows = []
-        for row in layout:
+        for row in board:
             empty_count = 0
             fen_row = ""
             for cell in row:
@@ -598,8 +622,23 @@ class XiangqiAnalyzer:
             if empty_count > 0:
                 fen_row += str(empty_count)
             fen_rows.append(fen_row)
-        
+
         return "/".join(fen_rows)
+
+    def _board_layout_to_fen(self, layout_pgn: List[List[str]]) -> str:
+        """将10x9的PGN布局转换为FEN格式字符串
+
+        朝向按红帅位置自动判断：检测器输出通常红方在下方；若红帅出现在前两行，
+        说明视角相反，此时旋转180度（红黑身份不变）后生成 FEN。
+        被遮挡的 'x' 单元格无法识别，按空位处理（引擎不接受 'x'）。
+
+        Args:
+            layout_pgn: 检测器输出的布局
+
+        Returns:
+            str: FEN 字符串
+        """
+        return self._board_to_fen(self._layout_to_board(layout_pgn))
     
     def format_analysis_result(self, result: Dict) -> str:
         """格式化分析结果为可读文本"""
@@ -615,16 +654,20 @@ class XiangqiAnalyzer:
         output.append(f"📊 平均置信度: {result['confidence']:.3f}")
         output.append(f"🏁 FEN位置: {result['fen']}")
         
-        output.append("\n棋盘布局（0=黑方底线，9=红方底线）:")
+        view = result.get('view') or result['layout_2d']
+        squares = result.get('squares_view') or []
+        if result.get('orientation') == 'black_bottom':
+            output.append("\n棋盘布局（我执黑，黑方在下）:")
+        else:
+            output.append("\n棋盘布局（我执红，红方在下）:")
         output.append("-" * 40)
-        
-        display_layout = result['layout_2d'][::-1]
-        
-        for i, row in enumerate(display_layout):
-            row_str = " ".join([f"{cell:>3}" for cell in row[::-1]])
-            output.append(f"{len(display_layout) - i - 1}: {row_str}")
+
+        for i, row in enumerate(view):
+            rank = squares[i][0][1:] if squares else ''
+            row_str = " ".join([f"{cell:>3}" for cell in row])
+            output.append(f"{rank:>2}: {row_str}")
             if i == 4:
-                output.append("   " + "-" * 27)
+                output.append("    " + "-" * 27)
         
         output.append("\n" + "=" * 60)
         output.append("推荐走法")

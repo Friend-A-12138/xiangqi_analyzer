@@ -2,6 +2,48 @@
 
 {% block title %}中国象棋AI分析器{% endblock %}
 
+{% block extra_css %}
+<style>
+    .board-wrap {
+        position: relative;
+        display: inline-block;
+        padding: 6px;
+        background: #f7e2b6;
+        border: 1px solid #d2a86a;
+        border-radius: 6px;
+    }
+    .board-grid {
+        display: grid;
+        grid-template-columns: 22px repeat(9, 42px);
+        grid-auto-rows: auto;
+        align-items: center;
+    }
+    .board-label {
+        font-size: 11px;
+        color: #8a6d3b;
+        text-align: center;
+        line-height: 40px;
+        height: 40px;
+    }
+    .board-grid .chess-cell {
+        width: 40px;
+        height: 40px;
+        line-height: 40px;
+        margin: 1px;
+        border: 1px solid #e0c9a0;
+        background: #fffaf0;
+        font-size: 15px;
+    }
+    .board-arrow-layer {
+        position: absolute;
+        left: 0;
+        top: 0;
+        pointer-events: none;
+        overflow: visible;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="row">
     <!-- 控制面板 -->
@@ -151,6 +193,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     socket.on('analysis_result', function(data) {
         updateAnalysisResult(data);
+        updateRecommendation(data);
     });
 });
 
@@ -237,74 +280,65 @@ function updatePreview(imageData) {
 
 // 更新分析结果
 function updateAnalysisResult(data) {
-    // 更新棋盘布局
     const analysisDiv = document.getElementById('analysis-result');
-    let boardHtml = '<div class="mb-3">';
-    boardHtml += `<p><strong>检测时间:</strong> ${data.detect_time.toFixed(3)}s</p>`;
-    boardHtml += `<p><strong>置信度:</strong> ${data.confidence.toFixed(3)}</p>`;
-    boardHtml += '<p><strong>FEN:</strong> <code>' + data.fen + '</code></p>';
-    boardHtml += '</div>';
-    
-    // 显示棋盘
-    boardHtml += '<div class="chessboard" style="font-family: monospace;">';
-    const layout = data.layout_2d;
-    for (let i = layout.length - 1; i >= 0; i--) {
-        boardHtml += '<div>';
-        const row = layout[i];
-        for (let j = row.length - 1; j >= 0; j--) {
-            const cell = row[j];
-            let cssClass = 'chess-cell';
-            if (cell.includes('红')) {
-                cssClass += ' chess-red';
-            } else if (cell.includes('黑')) {
-                cssClass += ' chess-black';
-            } else if (cell === '.') {
-                cssClass += ' chess-empty';
-            }
-            boardHtml += `<span class="${cssClass}">${cell === '.' ? '' : cell}</span>`;
-        }
-        boardHtml += '</div>';
-    }
-    boardHtml += '</div>';
-    
-    analysisDiv.innerHTML = boardHtml;
-    
-    // 更新推荐走法
-    const recommendationDiv = document.getElementById('recommendation');
-    let recHtml = '';
-    
-    if (data.best_move) {
-        const move = data.best_move;
-        const fromPos = move.substring(0, 2);
-        const toPos = move.substring(2, 4);
-        
-        recHtml += '<div class="alert alert-success">';
-        recHtml += '<h4><i class="bi bi-award"></i> 最佳走法</h4>';
-        recHtml += '<p><strong>' + move + '</strong> (' + fromPos + ' → ' + toPos + ')</p>';
-        
-        if (data.score) {
-            if (typeof data.score === 'string' && data.score.startsWith('MateIn')) {
-                recHtml += '<p><i class="bi bi-trophy"></i> 能在 ' + data.score.substring(6) + ' 步内将死</p>';
-            } else {
-                const score = parseFloat(data.score);
-                if (score > 0) {
-                    recHtml += '<p><i class="bi bi-arrow-up"></i> 红方优势 +' + score.toFixed(2) + '</p>';
-                } else if (score < 0) {
-                    recHtml += '<p><i class="bi bi-arrow-down"></i> 黑方优势 ' + score.toFixed(2) + '</p>';
-                } else {
-                    recHtml += '<p><i class="bi bi-balance-scale"></i> 双方均势</p>';
+
+    const view = data.view || data.layout_2d || [];
+    const squares = data.squares_view || [];
+    const orientation = data.orientation;
+
+    let html = '<div class="mb-3">';
+    html += `<p><strong>检测时间:</strong> ${Number(data.detect_time || 0).toFixed(3)}s</p>`;
+    html += `<p><strong>置信度:</strong> ${Number(data.confidence || 0).toFixed(3)}</p>`;
+    html += '<p><strong>FEN:</strong> <code>' + data.fen + '</code></p>';
+    html += '<p class="mb-0"><strong>显示朝向:</strong> ';
+    html += orientation === 'black_bottom'
+        ? '<span class="badge bg-dark">黑方在下（我执黑）</span>'
+        : '<span class="badge bg-danger">红方在下（我执红）</span>';
+    html += ' <span class="text-muted small">棋盘、坐标与箭头均按此朝向显示</span></p>';
+    html += '</div>';
+
+    if (view.length > 0) {
+        html += '<div class="board-wrap" id="board-wrap">';
+        html += '<div class="board-grid" id="chessboard-grid">';
+
+        // 行坐标（rank）与棋子：顺序已由后端按显示朝向算好，这里不再翻转
+        for (let r = 0; r < view.length; r++) {
+            const rank = squares.length ? String(squares[r][0]).substring(1) : '';
+            html += `<div class="board-label">${rank}</div>`;
+
+            for (let c = 0; c < view[r].length; c++) {
+                const name = view[r][c];
+                const square = squares.length ? squares[r][c] : '';
+                let cssClass = 'chess-cell';
+
+                if (name && name.indexOf('红') === 0) {
+                    cssClass += ' chess-red';
+                } else if (name && name.indexOf('黑') === 0) {
+                    cssClass += ' chess-black';
+                } else if (name === '.') {
+                    cssClass += ' chess-empty';
                 }
+
+                const text = (name === '.' || !name) ? '' : name;
+                html += `<span class="${cssClass}" data-square="${square}" title="${square}">${text}</span>`;
             }
         }
-        
-        recHtml += '</div>';
-    } else {
-        recHtml = '<div class="alert alert-warning">';
-        recHtml += '<i class="bi bi-exclamation-triangle"></i> 无法计算推荐走法';
-        recHtml += '</div>';
+
+        // 列坐标（file）
+        html += '<div class="board-label"></div>';
+        for (let c = 0; c < 9; c++) {
+            const file = squares.length
+                ? String(squares[view.length - 1][c]).substring(0, 1)
+                : '';
+            html += `<div class="board-label">${file}</div>`;
+        }
+
+        html += '</div>';
+        html += '<svg class="board-arrow-layer" id="board-arrow-layer"></svg>';
+        html += '</div>';
     }
-    
-    recommendationDiv.innerHTML = recHtml;
+
+    analysisDiv.innerHTML = html;
 }
 
 // 上传图片分析
@@ -342,7 +376,40 @@ function uploadImage() {
 // 更新推荐走法显示
 function updateRecommendation(data) {
     const recommendationDiv = document.getElementById('recommendation');
-    // 已经在updateAnalysisResult中更新了
+    let recHtml = '';
+
+    if (data.best_move) {
+        const move = data.best_move;
+        const fromPos = move.substring(0, 2);
+        const toPos = move.substring(2, 4);
+
+        recHtml += '<div class="alert alert-success">';
+        recHtml += '<h4><i class="bi bi-award"></i> 最佳走法</h4>';
+        recHtml += '<p><strong>' + move + '</strong> (' + fromPos + ' → ' + toPos + ')</p>';
+
+        if (data.score) {
+            if (typeof data.score === 'string' && data.score.startsWith('MateIn')) {
+                recHtml += '<p><i class="bi bi-trophy"></i> 能在 ' + data.score.substring(6) + ' 步内将死</p>';
+            } else {
+                const score = parseFloat(data.score);
+                if (score > 0) {
+                    recHtml += '<p><i class="bi bi-arrow-up"></i> 红方优势 +' + score.toFixed(2) + '</p>';
+                } else if (score < 0) {
+                    recHtml += '<p><i class="bi bi-arrow-down"></i> 黑方优势 ' + score.toFixed(2) + '</p>';
+                } else {
+                    recHtml += '<p><i class="bi bi-balance-scale"></i> 双方均势</p>';
+                }
+            }
+        }
+
+        recHtml += '</div>';
+    } else {
+        recHtml = '<div class="alert alert-warning">';
+        recHtml += '<i class="bi bi-exclamation-triangle"></i> 无法计算推荐走法';
+        recHtml += '</div>';
+    }
+
+    recommendationDiv.innerHTML = recHtml;
 }
 
 // 批量分析
