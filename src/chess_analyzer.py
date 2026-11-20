@@ -16,6 +16,7 @@ import logging
 from datetime import datetime
 from .chess_validator import ChessboardValidator, CATEGORY_MAP, CATEGORY_MAP_REVERSE
 from .board_view import build_board_view
+from .xiangqi_notation import move_to_chinese
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -531,6 +532,17 @@ class XiangqiAnalyzer:
             if analysis.get("error"):
                 logger.error(f"引擎分析失败: {analysis['error']}")
                 return None
+
+            # 坐标走法翻译为中文记谱（拿不准的情况返回原因，不猜测）
+            best_move = analysis['best_move']
+            notation = None
+            if best_move:
+                side = {'w': 'red', 'b': 'black'}.get(self._side_to_move())
+                notation = move_to_chinese(board, best_move, side=side)
+                if notation['ok']:
+                    logger.info(f"📖 中文记谱: {notation['text']}")
+                else:
+                    logger.warning(f"中文记谱失败: {notation['error']}")
             
             # 组装最终结果
             final_result = {
@@ -549,7 +561,9 @@ class XiangqiAnalyzer:
                 'time_info': detect_result.get('time_info', ''),
                 'occluded_count': detect_result.get('occluded_count', 0),
                 'player_side': self.player_side,
-                'best_move': analysis['best_move'],
+                'best_move': best_move,
+                'best_move_cn': notation['text'] if notation and notation['ok'] else None,
+                'move_note': notation,
                 'score': analysis['score'],
                 'original_with_keypoints': detect_result['original_with_keypoints'],
                 'transformed_board': detect_result['transformed_board'],
@@ -679,6 +693,11 @@ class XiangqiAnalyzer:
             to_pos = move[2:4]
             
             output.append(f"🎯 最佳走法: {move}  ({from_pos} -> {to_pos})")
+
+            if result.get('best_move_cn'):
+                output.append(f"📖 中文记谱: {result['best_move_cn']}")
+            elif result.get('move_note') and result['move_note'].get('error'):
+                output.append(f"📖 中文记谱: 暂无法生成（{result['move_note']['error']}）")
             
             if result['score']:
                 if isinstance(result['score'], str) and result['score'].startswith('MateIn'):

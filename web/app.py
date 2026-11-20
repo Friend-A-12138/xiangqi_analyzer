@@ -812,6 +812,7 @@ def upload_images_batch():
                             'success': True,
                             'fen': result['fen'],
                             'best_move': result['best_move'],
+                            'best_move_cn': result.get('best_move_cn'),
                             'score': make_json_serializable(result['score']),
                             'confidence': safe_float(result['confidence'], 0.0),
                             'detect_time': safe_float(result['detect_time'], 0.0),

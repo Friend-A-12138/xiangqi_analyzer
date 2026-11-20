@@ -385,7 +385,19 @@ function updateRecommendation(data) {
 
         recHtml += '<div class="alert alert-success">';
         recHtml += '<h4><i class="bi bi-award"></i> 最佳走法</h4>';
-        recHtml += '<p><strong>' + move + '</strong> (' + fromPos + ' → ' + toPos + ')</p>';
+
+        if (data.best_move_cn) {
+            recHtml += '<p class="fs-4 mb-1"><strong>' + data.best_move_cn + '</strong>' +
+                       ' <span class="text-muted small">(' + move + ')</span></p>';
+        } else {
+            recHtml += '<p class="fs-4 mb-1"><strong>' + move + '</strong></p>';
+            if (data.move_note && data.move_note.error) {
+                recHtml += '<p class="small text-warning mb-1">中文记谱暂不可用：' +
+                           data.move_note.error + '</p>';
+            }
+        }
+
+        recHtml += '<p class="mb-1">' + fromPos + ' → ' + toPos + '</p>';
 
         if (data.score) {
             if (typeof data.score === 'string' && data.score.startsWith('MateIn')) {
@@ -450,7 +462,7 @@ function renderBatchResult(data) {
                ' 张，失败 ' + data.failed + ' 张</p>';
     
     html += '<div class="table-responsive"><table class="table table-sm align-middle">';
-    html += '<thead><tr><th>文件名</th><th>FEN</th><th>推荐走法</th><th>评估</th><th>耗时</th></tr></thead><tbody>';
+    html += '<thead><tr><th>文件名</th><th>FEN</th><th>推荐走法</th><th>中文记谱</th><th>评估</th><th>耗时</th></tr></thead><tbody>';
     
     data.results.forEach(function(item) {
         html += '<tr>';
@@ -458,11 +470,12 @@ function renderBatchResult(data) {
         
         if (item.success) {
             html += '<td><code class="small">' + item.fen + '</code></td>';
-            html += '<td><strong>' + (item.best_move || '-') + '</strong></td>';
+            html += '<td>' + (item.best_move || '-') + '</td>';
+            html += '<td><strong>' + (item.best_move_cn || '-') + '</strong></td>';
             html += '<td>' + formatScore(item.score) + '</td>';
             html += '<td class="small">' + item.detect_time.toFixed(2) + 's</td>';
         } else {
-            html += '<td colspan="4" class="text-danger small">' +
+            html += '<td colspan="5" class="text-danger small">' +
                     (item.error || '分析失败') + '</td>';
         }
         
